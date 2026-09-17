@@ -1,4 +1,4 @@
-# GOTY
+# Lauris's Version - Merge Conflict Test
 A tribute to *Worms* and childhood.
 
 Today we are discussing and the merge conflict
