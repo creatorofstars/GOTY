@@ -1,4 +1,4 @@
-# Lauris's Version - Merge Conflict Test
+# Merge Conflict Test - Clarine & Lauris
 A tribute to *Worms* and childhood.
 
 Today we are discussing and the merge conflict
