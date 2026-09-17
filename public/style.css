@@ -1,0 +1,169 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: "Microsoft YaHei", system-ui, sans-serif;
+  background: linear-gradient(160deg, #1a2340, #0d1220);
+  color: #eee;
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  overflow-x: hidden;
+}
+.hidden { display: none !important; }
+.screen { width: 100%; max-width: 1240px; padding: 12px; }
+
+/* ---------- 大厅/房间 动态背景 ---------- */
+#lobby, #roomScreen { position: relative; }
+.sky-bg {
+  position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none;
+  background: linear-gradient(160deg, #141d38, #0b1020);
+}
+.sky-bg::before {
+  content: ''; position: absolute; inset: -25%;
+  background: linear-gradient(120deg, rgba(47,95,208,.28), rgba(255,122,60,.16), rgba(123,63,242,.28), rgba(47,95,208,.28));
+  background-size: 300% 300%;
+  animation: skyShift 20s ease-in-out infinite;
+}
+@keyframes skyShift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+.blob {
+  position: absolute; border-radius: 50%; filter: blur(70px); opacity: .45;
+  animation: blobFloat 18s ease-in-out infinite alternate;
+}
+.blob.b1 { width: 460px; height: 460px; left: 6%; top: 10%; background: #2f5fd0; }
+.blob.b2 { width: 400px; height: 400px; right: 8%; top: 52%; background: #ff7a3c; animation-duration: 23s; animation-delay: -7s; }
+.blob.b3 { width: 340px; height: 340px; left: 44%; top: -12%; background: #7b3ff2; animation-duration: 27s; animation-delay: -14s; }
+@keyframes blobFloat {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(70px, 50px) scale(1.18); }
+}
+.cloud {
+  position: absolute; height: 56px; border-radius: 60px;
+  background: rgba(255,255,255,.09); filter: blur(16px);
+  animation: cloudDrift linear infinite;
+}
+.cloud.c1 { width: 260px; top: 16%; animation-duration: 46s; }
+.cloud.c2 { width: 180px; top: 38%; animation-duration: 62s; animation-delay: -30s; opacity: .7; }
+.cloud.c3 { width: 320px; top: 68%; animation-duration: 54s; animation-delay: -18s; opacity: .5; }
+@keyframes cloudDrift {
+  from { transform: translateX(-360px); }
+  to { transform: translateX(calc(100vw + 360px)); }
+}
+
+/* ---------- 大厅 ---------- */
+.lobby-box {
+  position: relative; z-index: 1;
+  max-width: 640px; margin: 6vh auto; background: rgba(255,255,255,.07);
+  border: 1px solid rgba(255,255,255,.14); border-radius: 22px; padding: 52px 56px;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 24px 70px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.12);
+}
+.lobby-box h1 { text-align: center; font-size: 54px; margin-bottom: 8px; letter-spacing: 2px; text-shadow: 0 0 28px rgba(255,213,74,.35); animation: titleGlow 3.2s ease-in-out infinite alternate; }
+@keyframes titleGlow {
+  from { text-shadow: 0 0 18px rgba(255,213,74,.25); }
+  to { text-shadow: 0 0 38px rgba(255,213,74,.6); }
+}
+.lobby-box h2 { text-align: center; font-size: 34px; margin-bottom: 8px; }
+.lobby-box .sub { color: #ffd54a; font-size: 24px; }
+.lobby-box .tip { text-align: center; color: #9fb0d0; margin-bottom: 30px; font-size: 15px; }
+.row { display: flex; gap: 10px; margin-bottom: 14px; }
+.row label { align-self: center; width: 52px; color: #9fb0d0; }
+input {
+  flex: 1; background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.18);
+  color: #fff; padding: 12px 14px; border-radius: 10px; outline: none; font-size: 15px;
+}
+input:focus { border-color: #ffd54a; box-shadow: 0 0 0 3px rgba(255,213,74,.15); }
+.btn {
+  background: #2c3a5e; color: #fff; border: 1px solid rgba(255,255,255,.15);
+  padding: 12px 20px; border-radius: 10px; cursor: pointer; font-size: 15px;
+  transition: .15s; user-select: none; white-space: nowrap;
+}
+.btn:hover { background: #3b4d7d; }
+.btn.primary { background: linear-gradient(135deg, #ff9a3c, #ff5722); border: none; }
+.btn.primary:hover { filter: brightness(1.12); }
+.btn.big { font-size: 17px; padding: 14px 26px; }
+.btn.small { padding: 6px 12px; font-size: 13px; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.lobby-box h3 { margin: 24px 0 10px; font-size: 16px; color: #9fb0d0; display: flex; align-items: center; gap: 10px; }
+#roomList { list-style: none; max-height: 260px; overflow-y: auto; }
+#roomList li {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; margin-bottom: 8px; background: rgba(0,0,0,.3);
+  border-radius: 10px; cursor: pointer; font-size: 15px;
+  transition: .15s;
+}
+#roomList li:hover { background: rgba(255,255,255,.1); transform: translateX(3px); }
+#roomList .empty { color: #6b7a9c; cursor: default; justify-content: center; }
+.err { color: #ff7b7b; font-size: 13px; min-height: 18px; margin-top: 8px; }
+#rsPlayers { list-style: none; margin-top: 12px; }
+#rsPlayers li {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; margin-bottom: 8px; background: rgba(0,0,0,.3);
+  border-radius: 10px; font-size: 15px;
+}
+#rsPlayers .tag { font-size: 13px; color: #9fb0d0; }
+#rsPlayers .crown { color: #ffd54a; }
+
+/* ---------- 游戏 ---------- */
+.topbar {
+  display: flex; align-items: center; gap: 16px; margin-bottom: 8px;
+  background: rgba(255,255,255,.05); border-radius: 12px; padding: 8px 16px;
+}
+.pinfo { flex: 1; min-width: 160px; }
+.pinfo.right { text-align: right; }
+.pname { font-size: 14px; margin-bottom: 4px; font-weight: bold; }
+.teamname { font-size: 13px; font-weight: bold; color: #ffd54a; margin-bottom: 4px; }
+.pinfo.right .teamname { text-align: right; }
+.hprows { display: flex; flex-direction: column; gap: 3px; }
+.hprow { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+.hprow.right { flex-direction: row-reverse; }
+.hprow .hname { width: 76px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #cdd8ee; }
+.hprow .hpbar { flex: 1; height: 10px; background: rgba(0,0,0,.5); border-radius: 5px; overflow: hidden; }
+.hprow .hpfill { height: 100%; border-radius: 5px; transition: width .5s; }
+.hprow.dead .hname { color: #667; text-decoration: line-through; }
+.center-hud { text-align: center; min-width: 200px; }
+#turnLabel { font-size: 14px; color: #ffd54a; font-weight: bold; }
+.wind { font-size: 13px; color: #9fb0d0; }
+#windArrow { display: inline-block; }
+#timer { font-size: 22px; font-weight: bold; }
+#timer.urgent { color: #ff5252; animation: pulse .5s infinite alternate; }
+@keyframes pulse { to { transform: scale(1.2); } }
+
+.canvas-wrap { position: relative; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 30px rgba(0,0,0,.5); }
+#cv { display: block; width: 100%; height: auto; background: #7ec8f7; }
+#aimHud {
+  position: absolute; left: 12px; bottom: 10px; background: rgba(0,0,0,.55);
+  padding: 6px 12px; border-radius: 8px; font-size: 14px; display: flex; gap: 16px;
+}
+#aimHud b { color: #ffd54a; }
+#powerBarWrap {
+  position: absolute; right: 12px; bottom: 12px; width: 320px; height: 16px;
+  background: rgba(0,0,0,.55); border-radius: 8px; overflow: hidden;
+  border: 1px solid rgba(255,255,255,.25);
+}
+#powerBar { height: 100%; width: 0; background: linear-gradient(90deg, #ffd54a, #ff5722); }
+#toast {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  background: rgba(0,0,0,.7); color: #ffd54a; padding: 7px 16px; border-radius: 8px;
+  font-size: 14px; transition: opacity .3s; opacity: .95;
+}
+#overlay {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,.45); font-size: 34px; font-weight: bold; color: #ffd54a;
+  text-shadow: 0 3px 12px rgba(0,0,0,.6); text-align: center; flex-direction: column; gap: 20px;
+}
+
+.bottombar { display: flex; gap: 12px; margin-top: 8px; align-items: stretch; }
+.controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.keyhint { font-size: 12px; color: #8fa3c8; align-self: center; white-space: nowrap; }
+.chat { flex: 1; display: flex; flex-direction: column; min-width: 260px; }
+#chatLog {
+  flex: 1; min-height: 54px; max-height: 96px; overflow-y: auto; font-size: 12px;
+  background: rgba(0,0,0,.35); border-radius: 8px; padding: 6px 10px; margin-bottom: 6px;
+}
+#chatLog .sys { color: #8fa3c8; }
+#chatLog b { color: #ffd54a; }
+.chatrow { display: flex; gap: 6px; }
+@media (max-width: 900px) {
+  .bottombar { flex-direction: column; }
+}

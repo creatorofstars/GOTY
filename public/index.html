@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>弹弹堂 Online</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- 大厅 -->
+<div id="lobby" class="screen">
+  <div class="sky-bg">
+    <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+    <div class="cloud c1"></div><div class="cloud c2"></div><div class="cloud c3"></div>
+  </div>
+  <div class="lobby-box">
+    <h1>💣 弹弹堂 <span class="sub">Online</span></h1>
+    <p class="tip">经典回合制炮弹对战 · 支持多人观战</p>
+    <div class="row">
+      <label>昵称</label>
+      <input id="nameInput" maxlength="12" placeholder="输入昵称">
+    </div>
+    <div class="row">
+      <button id="quickBtn" class="btn primary">⚡ 快速匹配</button>
+    </div>
+    <div class="row">
+      <input id="roomInput" maxlength="10" placeholder="房间名">
+      <button id="createBtn" class="btn">创建房间</button>
+      <button id="pveBtn" class="btn">👾 PVE房间</button>
+    </div>
+    <h3>房间列表 <button id="refreshBtn" class="btn small">刷新</button></h3>
+    <ul id="roomList"></ul>
+    <p id="lobbyErr" class="err"></p>
+  </div>
+</div>
+
+<!-- 房间等待界面 -->
+<div id="roomScreen" class="screen hidden">
+  <div class="sky-bg">
+    <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+    <div class="cloud c1"></div><div class="cloud c2"></div><div class="cloud c3"></div>
+  </div>
+  <div class="lobby-box">
+    <h2>🏠 房间 <span id="rsRoomId" class="sub"></span></h2>
+    <p class="tip" id="rsTip">等待玩家加入…（2~6人可开局）</p>
+    <ul id="rsPlayers"></ul>
+    <div class="row" style="margin-top:16px">
+      <button id="rsStartBtn" class="btn primary big" style="flex:1" disabled>开始游戏</button>
+      <button id="rsLeaveBtn" class="btn">离开房间</button>
+    </div>
+    <p id="rsHint" class="err"></p>
+  </div>
+</div>
+
+<!-- 游戏 -->
+<div id="game" class="screen hidden">
+  <div class="topbar">
+    <div class="pinfo" id="team0info">
+      <div class="teamname">🔴 红队</div>
+      <div class="hprows" id="team0rows"></div>
+    </div>
+    <div class="center-hud">
+      <div id="turnLabel">等待玩家…</div>
+      <div class="wind">风向 <span id="windVal">0</span> <span id="windArrow"></span></div>
+      <div id="timer">20</div>
+    </div>
+    <div class="pinfo right" id="team1info">
+      <div class="teamname">🔵 蓝队</div>
+      <div class="hprows" id="team1rows"></div>
+    </div>
+  </div>
+
+  <div class="canvas-wrap">
+    <canvas id="cv" width="1200" height="600"></canvas>
+    <div id="aimHud">
+      <span>朝向 <b id="faceVal">→</b></span>
+      <span>角度 <b id="angleVal">45</b>°</span>
+      <span>力度 <b id="powerVal">50</b></span>
+      <span>移动 <b id="moveVal">150</b></span>
+    </div>
+    <div id="powerBarWrap"><div id="powerBar"></div></div>
+    <div id="toast" class="hidden"></div>
+    <div id="overlay" class="hidden"></div>
+  </div>
+
+  <div class="bottombar">
+    <div class="controls">
+      <button class="btn" id="leaveBtn">离开房间</button>
+    </div>
+    <div class="keyhint">⌨️ A/D 移动 · W/S 调角度 · 空格蓄力发射</div>
+    <div class="chat">
+      <div id="chatLog"></div>
+      <div class="chatrow">
+        <input id="chatInput" maxlength="120" placeholder="按回车发送…">
+        <button id="chatBtn" class="btn small">发送</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<button id="bgmBtn" class="btn small" style="position:fixed;top:10px;right:14px;z-index:99" title="背景音乐开关">🔊 音乐</button>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="sfx.js"></script>
+<script src="client.js"></script>
+</body>
+</html>
