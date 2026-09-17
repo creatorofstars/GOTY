@@ -1,5 +1,5 @@
-# GOTY
-+ 致敬百战天虫与童年
+# GOTY — Game of the Year
++ 致敬百战天虫与童年 — A tribute to Worms (百战天虫) and the golden days of our childhood
 
 Today we are discussing and the merge conflict
 
