@@ -35,11 +35,11 @@ This is not a ceremony. It is a life-or-death trial.
 
 ---
 
-## ⚔️ The Warriors
+## ⚔️ Character: The Warriors
 
-Two warriors enter the temple's arena. Only one walks out with the Fragment.
+Two warriors enter the temple's arena. Only one walks out with the Fragment. Select your warrior
 
-### 🏹 The Archer *(girl)*
+### 🏹 The Archer 
 
 A calm forest ranger who grew up protecting her kingdom's borders.
 
@@ -48,7 +48,7 @@ A calm forest ranger who grew up protecting her kingdom's borders.
 
 > "I don't miss."
 
-### 🔫 The Arcane Gunner *(boy)*
+### 🔫 The Arcane Gunner 
 
 A young inventor who built a magical firearm powered by crystals.
 
@@ -57,7 +57,7 @@ A young inventor who built a magical firearm powered by crystals.
 
 > "Why use a sword when technology exists?"
 
-### 💣 The Bomb Mage *(boy)*
+### 💣 The Bomb Mage 
 
 A reckless magician who specializes in explosive magic.
 
@@ -68,7 +68,7 @@ A reckless magician who specializes in explosive magic.
 
 *(Narrator: they absolutely do not.)*
 
-### 🥷 The Shadow Ninja *(girl)*
+### 🥷 The Shadow Ninja 
 
 A mysterious warrior from the Shadow Clan.
 
