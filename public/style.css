@@ -237,6 +237,11 @@ input:focus { border-color: #ffd54a; box-shadow: 0 0 0 3px rgba(255,213,74,.15);
   border: 1px solid rgba(255,255,255,.25);
 }
 #powerBar { height: 100%; width: 0; background: linear-gradient(90deg, #ffd54a, #ff5722); }
+#netHud {
+  position: absolute; right: 12px; bottom: 34px; z-index: 6;
+  background: rgba(8,13,28,.6); border-radius: 6px; padding: 2px 8px;
+  font-size: 11px; color: #9fb0d0; pointer-events: none; font-variant-numeric: tabular-nums;
+}
 #powerMark {
   position: absolute; top: 0; bottom: 0; width: 3px; display: none;
   transform: translateX(-1px); border-radius: 2px;

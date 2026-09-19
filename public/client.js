@@ -298,6 +298,21 @@ enemyImg.onload = () => {
   }
 };
 let charging = false, chargeStart = 0;
+// 帧率与延迟显示
+let fpsFrames = 0, fpsLast = performance.now(), lastPingSent = 0;
+function netTick(now) {
+  fpsFrames++;
+  if (now - fpsLast >= 500) {
+    const fps = Math.round(fpsFrames * 1000 / (now - fpsLast));
+    fpsFrames = 0; fpsLast = now;
+    $('netHud').textContent = `FPS ${fps} · 延迟 ${lastRtt == null ? '--' : lastRtt + 'ms'}`;
+  }
+  if (now - lastPingSent >= 2000) {
+    lastPingSent = now;
+    socket.emit('lat:ping', () => { lastRtt = Math.round(performance.now() - lastPingSent); });
+  }
+}
+let lastRtt = null;
 let lastFiredAngle = null; // 上一次发射的局部角：对局中作为后续回合的默认角度（首发射击前为null=45）
 let showColliders = false; // 作弊指令 iseeall：显示全部碰撞体
 let lastPower = null; // 上一次发射的蓄力进度（进度条上的淡蓝标记）
@@ -1124,6 +1139,7 @@ function mySlotRef() {
 
 /* ---------- 渲染 ---------- */
 function draw() {
+  netTick(performance.now());
   camStep();
   ctx.setTransform(RES, 0, 0, RES, 0, 0);
   ctx.save();

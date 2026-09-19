@@ -1302,6 +1302,9 @@ io.on('connection', (socket) => {
     setTimeout(() => startTurn(room), 800);
   });
 
+  // 延迟测量：客户端发带回调的探测包，收到即回执（socket.io ack）
+  socket.on('lat:ping', (ack) => { if (typeof ack === 'function') ack(); });
+
   socket.on('disconnect', leaveRoom);
 });
 
