@@ -1,14 +1,93 @@
-# Clarine's Version - Merge Conflict Test
-A tribute to *Worms* and childhood.
+# GOTY — THE LAST STAR
 
-Today we are discussing and the merge conflict
+> **Genre:** Fantasy Adventure + Action + Light Comedy
 
-## Byebye
+> **One Star Fragment. Two warriors. One final battle to decide the true Guardian of the Star — the only one who can save the world.**
 
-- **Healthier and Longer Lives** — AI helps doctors detect diseases earlier, analyze medical scans with superhuman consistency, and personalize treatment, while also accelerating drug discovery and medical research.
-- **Learning and Access for Everyone** — Intelligent tutoring systems adapt lessons to each student's pace, and tools like speech-to-text, real-time translation, and voice assistants open up work and communication to people with disabilities and language barriers.
-- **Safer, More Productive World** — By automating repetitive and dangerous tasks, AI frees people for creative and human-centered work, while improving early-warning systems for natural disasters and emergencies.
+## 🌟 The Story
 
+Long ago, the world was protected by the **Heart Star** — a magical source of energy that kept the world's magic alive.
+
+Now, it's disappearing.
+
+The only way to restore it is through the last **Star Fragment**.
+
+> **Only the strongest warrior may carry the Star Fragment to save the world.**
+
+Two adventurers arrive to claim it.
+
+**One Star Fragment. Two warriors. One final battle to decide the true Guardian of the Star.**
+
+## ⚔️ The Warriors
+
+Four warriors answer the call. Two enter the arena — only one walks out as the Guardian of the Star.
+
+### 🏹 The Archer
+
+A calm forest ranger who grew up protecting the borders of her homeland.
+
+- **Strength:** precision, long-range attacks
+- **Personality:** calm, confident, focused
+
+> "I don't miss."
+
+### 🔫 The Arcane Gunner
+
+A young inventor who built a magical firearm powered by crystals.
+
+- **Strength:** fast attacks, technology combined with magic
+- **Personality:** inventive, confident, slightly arrogant
+
+> "Why use a sword when technology exists?"
+
+### 💣 The Bomb Mage
+
+A reckless magician who specializes in explosive magic.
+
+- **Strength:** powerful, unpredictable attacks
+- **Personality:** chaotic, overconfident, funny
+
+> "I know exactly what I'm doing."
+
+*(Narrator: they absolutely do not.)*
+
+### 🥷 The Shadow Ninja
+
+A mysterious warrior from the Shadow Clan.
+
+- **Strength:** speed, evasion, surprise attacks
+- **Personality:** mysterious, quiet, confident
+
+> "You never saw me coming."
+
+## 📖 Story Progression
+
+1. **The Heart Star** — the magical source keeping the world's magic alive is disappearing.
+2. **The Star Fragment** — the last fragment is the only way to restore the Heart Star.
+3. **The Ancient Temple** — two adventurers arrive to claim the fragment.
+4. **The Final Battle** — only the strongest warrior can carry the Star Fragment.
+5. **The Guardian** — the winner becomes the true Guardian of the Star.
+
+## 🎬 In-Game Introduction
+
+> **The Heart Star is disappearing.**
+>
+> The last **Star Fragment** is the only way to restore it.
+>
+> **Only the strongest warrior may carry it.**
+>
+> Two adventurers. One fragment.
+>
+> **One final battle to decide the true Guardian of the Star.**
+
+> **CHOOSE YOUR WARRIOR**
+
+## 🎮 How the Story Connects to the Gameplay
+
+- The 1v1 battle is the final trial for the Star Fragment.
+- Each player controls an adventurer competing to become the Guardian of the Star.
+- Only one warrior can claim the Star Fragment.
+- The winner becomes the true Guardian of the Star — and carries the Fragment to save the world.
 
 ## 部署与延迟说明
 
