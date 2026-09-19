@@ -8,8 +8,13 @@ const path = require('path');
 const { Server } = require('socket.io');
 
 const app = express();
+// 关闭 Nagle 算法：小包（游戏消息）立即发送，不被 TCP 缓冲合并
+server.on('connection', (socket) => socket.setNoDelay(true));
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  transports: ['websocket', 'polling'],
+  perMessageDeflate: false, // 游戏小包压缩得不偿失，关闭以降低延迟
+});
 
 const WORLD_W = 1920;
 const WORLD_H = 1080;

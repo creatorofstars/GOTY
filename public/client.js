@@ -8,7 +8,7 @@ const RES = 1; // 渲染分辨率与显示尺寸1:1（1920x1080），避免多�
 cv.width = W * RES;
 cv.height = H * RES;
 
-const socket = io();
+const socket = io({ transports: ['websocket', 'polling'] }); // 优先WebSocket，跳过polling起步
 let myName = '';
 let roomId = null;
 let isSpectator = false;
@@ -300,19 +300,26 @@ enemyImg.onload = () => {
 let charging = false, chargeStart = 0;
 // 帧率与延迟显示
 let fpsFrames = 0, fpsLast = performance.now(), lastPingSent = 0;
+let lastRtt = null;
+const rttHistory = []; // 最近5次延迟取平均，消除毛刺
 function netTick(now) {
   fpsFrames++;
   if (now - fpsLast >= 500) {
     const fps = Math.round(fpsFrames * 1000 / (now - fpsLast));
     fpsFrames = 0; fpsLast = now;
-    $('netHud').textContent = `FPS ${fps} · 延迟 ${lastRtt == null ? '--' : lastRtt + 'ms'}`;
+    const transport = (socket.io && socket.io.engine) ? socket.io.engine.transport.name.toUpperCase() : '--';
+    const avg = rttHistory.length ? Math.round(rttHistory.reduce((a, b) => a + b, 0) / rttHistory.length) : null;
+    $('netHud').textContent = `FPS ${fps} · 延迟 ${avg == null ? '--' : avg + 'ms'} · ${transport}`;
   }
   if (now - lastPingSent >= 2000) {
     lastPingSent = now;
-    socket.emit('lat:ping', () => { lastRtt = Math.round(performance.now() - lastPingSent); });
+    socket.emit('lat:ping', () => {
+      lastRtt = Math.round(performance.now() - lastPingSent);
+      rttHistory.push(lastRtt);
+      if (rttHistory.length > 5) rttHistory.shift();
+    });
   }
 }
-let lastRtt = null;
 let lastFiredAngle = null; // 上一次发射的局部角：对局中作为后续回合的默认角度（首发射击前为null=45）
 let showColliders = false; // 作弊指令 iseeall：显示全部碰撞体
 let lastPower = null; // 上一次发射的蓄力进度（进度条上的淡蓝标记）
