@@ -1313,7 +1313,7 @@ io.on('connection', (socket) => {
   socket.on('disconnect', leaveRoom);
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`弹弹堂服务器已启动: http://localhost:${PORT}`);
 });
