@@ -1,6 +1,6 @@
 /* 音效模块：Web Audio 合成 MIDI 风格音效与循环BGM（无外部音频文件） */
 const SFX = (() => {
-  let ctx = null, bgmOn = true, bgmTimer = null, step = 0, bgmStyle = 'lobby';
+  let ctx = null, bgmOn = false, bgmTimer = null, step = 0, bgmStyle = 'lobby'; // 默认关闭，由开场的音乐询问决定
 
   function ac() {
     if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -37,6 +37,15 @@ const SFX = (() => {
     src.start(c.currentTime + when);
   }
 
+  // 播放一次性音频文件
+  function sample(src, vol = 0.55) {
+    try {
+      const a = new Audio(src);
+      a.volume = vol;
+      a.play().catch(() => {});
+    } catch (e) { /* ignore */ }
+  }
+
   const fx = {
     click()   { tone(880, .06, 'square', .07); },
     shoot()   { tone(320, .3, 'sawtooth', .13, 0, -270); },
@@ -53,12 +62,14 @@ const SFX = (() => {
     hit1() { noise(.08, .15); tone(320, .1, 'square', .13, 0, -170); tone(140, .14, 'square', .1, .04, -70); noise(.2, .05, .1); }, // 影袭：命中+箭杆震颤尾音
     hit2() { tone(1400, .2, 'sine', .1, 0, -900); tone(950, .26, 'sine', .08, .05, -520); tone(1800, .15, 'sine', .05, .02, -1100); noise(.24, .07); }, // 鹰眼：迸裂碎屑三层下滑
     hit3() { noise(.06, .13); tone(520, .08, 'square', .1, 0, -300); tone(150, .12, 'square', .1, .04, -60); noise(.12, .06, .08); }, // 疾风：钉击+镖身余震
+    upgHover() { tone(1750, .04, 'triangle', .07); tone(2350, .03, 'sine', .04, .012); noise(.015, .03); },   // 悬停：清脆咔哒
+    upgClick() { tone(1244, .16, 'square', .055); tone(1867, .12, 'square', .045, .005); tone(2489, .22, 'sine', .06); noise(.035, .045); }, // 点击：金铁交鸣
     shoot0()  { tone(150, .3, 'sawtooth', .18, 0, -120); noise(.2, .12); tone(90, .2, 'triangle', .14, .02, -40); tone(500, .07, 'square', .05); }, // 轰侠：炮膛闷响+气浪+机械上膛
     shoot1()  { tone(520, .1, 'triangle', .14, 0, -380); noise(.05, .07); tone(1500, .06, 'sine', .05, .04, -900); }, // 影袭：弓弦回弹+箭矢破空
     shoot2()  { tone(1100, .18, 'sine', .1, 0, 520); tone(1650, .14, 'sine', .07, .04, -430); tone(2200, .1, 'sine', .04, .08, -300); }, // 鹰眼：三段上行魔法泛音
     shoot3()  { noise(.2, .12); tone(820, .14, 'sine', .06, 0, -660); tone(300, .05, 'square', .05); tone(1200, .06, 'sine', .04, .06, -800); }, // 疾风：破风+甩腕
-    win()     { [523, 659, 784, 1046].forEach((f, i) => tone(f, .18, 'square', .14, i * .15)); },
-    lose()    { [420, 360, 300, 180].forEach((f, i) => tone(f, .26, 'sawtooth', .12, i * .2)); },
+    win()     { sample('/sound/victory.mp3'); },   // 战胜音效（音频文件）
+    lose()    { sample('/sound/defeat.m4a'); },    // 战败音效（音频文件）
   };
 
   // 钢琴音色：多层正弦泛音 + 指数衰减
@@ -146,24 +157,77 @@ const SFX = (() => {
     } catch (e) { /* ignore */ }
   }
 
-  function startBgmTimer() {
-    if (bgmTimer) { clearInterval(bgmTimer); bgmTimer = null; }
-    const battle = bgmStyle === 'battle';
-    bgmTimer = setInterval(battle ? bgmStepBattle : bgmStepLobby, battle ? 150 : 300);
+  // BGM：使用音频文件循环播放（lobby/battle两套）
+  const bgmFiles = {
+    lobby:  '/sound/bgm_lobby.mp3',
+    battle: '/sound/bgm_battle.mp3',
+  };
+  const bgmEls = {};
+  function bgmEl(style) {
+    if (!bgmEls[style]) {
+      const a = new Audio(bgmFiles[style]);
+      a.loop = true;
+      a.volume = 0.35;
+      bgmEls[style] = a;
+    }
+    return bgmEls[style];
+  }
+  function playBgm() {
+    if (!bgmOn) return;
+    Object.entries(bgmEls).forEach(([k, a]) => { if (k !== bgmStyle) { try { a.pause(); } catch (e) {} } });
+    const a = bgmEl(bgmStyle);
+    if (a.paused) a.play().catch(() => {}); // 幂等：已在播放则不重播
+  }
+  function stopBgmAudio() {
+    Object.values(bgmEls).forEach(a => { try { a.pause(); } catch (e) {} });
+  }
+
+  // 蓄力音：持续振荡器，音调随蓄力进度上升
+  let chargeOsc = null, chargeGain = null;
+  function startChargeSound() {
+    const c = ac();
+    stopChargeSound();
+    chargeOsc = c.createOscillator(); chargeGain = c.createGain();
+    chargeOsc.type = 'sawtooth';
+    chargeOsc.frequency.setValueAtTime(180, c.currentTime);
+    chargeGain.gain.setValueAtTime(0.0001, c.currentTime);
+    chargeGain.gain.linearRampToValueAtTime(0.05, c.currentTime + 0.05);
+    chargeOsc.connect(chargeGain); chargeGain.connect(c.destination);
+    chargeOsc.start();
+  }
+  function updateChargeSound(progress) { // progress: 0~1
+    if (!chargeOsc || !ctx) return;
+    const f = 180 + Math.max(0, Math.min(1, progress)) * 620; // 180 → 800Hz
+    try {
+      chargeOsc.frequency.linearRampToValueAtTime(f, ctx.currentTime + 0.03);
+      chargeGain.gain.setValueAtTime(0.05 + progress * 0.03, ctx.currentTime);
+    } catch (e) { /* ignore */ }
+  }
+  function stopChargeSound() {
+    if (chargeOsc) {
+      try {
+        chargeGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.08);
+        chargeOsc.stop(ctx.currentTime + 0.1);
+      } catch (e) { /* ignore */ }
+      chargeOsc = null; chargeGain = null;
+    }
   }
 
   return {
     init() {
       ac();
-      if (!bgmTimer) startBgmTimer();
+      playBgm(); // 首次用户交互后启动BGM（浏览器自动播放策略允许此后播放）
     },
-    /** 切换BGM风格：'lobby'钢琴曲 / 'battle'急促弦乐+打击乐 */
+    startChargeSound, updateChargeSound, stopChargeSound,
+    /** 切换BGM风格：'lobby'大厅曲 / 'battle'战斗曲 */
     setBgm(style) {
-      if (bgmStyle === style) return;
+      if (bgmStyle === style) { playBgm(); return; }
       bgmStyle = style;
-      if (bgmTimer) startBgmTimer();
+      playBgm();
     },
     play(n) { try { fx[n] && fx[n](); } catch (e) { /* ignore */ } },
-    toggleBgm() { bgmOn = !bgmOn; return bgmOn; },
+    toggleBgm() { bgmOn = !bgmOn; if (bgmOn) playBgm(); else stopBgmAudio(); return bgmOn; },
+    /** 直接设置音乐开关（不翻转） */
+    setBgmOn(v) { bgmOn = v; if (v) playBgm(); else stopBgmAudio(); },
   };
 })();

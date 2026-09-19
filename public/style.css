@@ -9,7 +9,7 @@ body {
 }
 .hidden { display: none !important; }
 /* 游戏界面不受通用限宽影响，画布以完整尺寸显示 */
-#game { max-width: 1660px; }
+#game { max-width: 1980px; }
 .screen { width: 100%; max-width: 1240px; padding: 12px; }
 
 /* ---------- 大厅/房间 动态背景 ---------- */
@@ -237,23 +237,48 @@ input:focus { border-color: #ffd54a; box-shadow: 0 0 0 3px rgba(255,213,74,.15);
   border: 1px solid rgba(255,255,255,.25);
 }
 #powerBar { height: 100%; width: 0; background: linear-gradient(90deg, #ffd54a, #ff5722); }
+#powerMark {
+  position: absolute; top: 0; bottom: 0; width: 3px; display: none;
+  transform: translateX(-1px); border-radius: 2px;
+  background: rgba(130, 200, 255, .55);          /* 半透明淡蓝 */
+  box-shadow: 0 0 5px rgba(130, 200, 255, .8);
+}
 
 /* ---------- 卡牌手牌 ---------- */
 /* ---------- 积分强化面板（画布右侧） ---------- */
 #pointsPanel {
-  position: absolute; right: 10px; top: 84px; width: 170px; z-index: 6;
+  position: absolute; right: 10px; top: 50%; translate: 0 -50%; width: 170px; z-index: 6;
   background: rgba(8,13,28,.78); backdrop-filter: blur(4px);
   border: 1px solid rgba(255,255,255,.16); border-radius: 12px; padding: 10px;
   display: flex; flex-direction: column; gap: 6px;
 }
 #pointsVal { text-align: center; font-size: 15px; font-weight: bold; color: #ffd54a; margin-bottom: 2px; }
+/* 可用：弹性滑入；不可用：反向滑出并半透明隐去 */
+#pointsPanel { width: 184px; }
+#pointsPanel.anim-in { animation: panelIn .5s cubic-bezier(.34,1.56,.64,1); }
+#pointsPanel.anim-out { animation: panelOut .45s ease forwards; }
+@keyframes panelIn {
+  from { transform: translateX(46px) scale(.92); opacity: 0; }
+  70% { transform: translateX(-6px) scale(1.02); opacity: 1; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes panelOut {
+  from { transform: none; opacity: 1; }
+  to { transform: translateX(36px) scale(.94); opacity: .45; }
+}
+.upg { transition: transform .12s ease; }
+.upg:hover { transform: scale(1.06); z-index: 2; position: relative; } /* transform不占布局空间，面板不会变大 */
+/* 无滚动条：全部展开，留出余量供悬停放大而不溢出 */
+#upgList { display: flex; flex-direction: column; gap: 6px; padding: 3px 6px; }
+#pointsPanel { overflow: visible; }
 .upg {
   background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.16);
   border-radius: 8px; padding: 6px 8px; cursor: pointer; transition: .12s; text-align: left;
 }
 .upg:hover { border-color: #ffd54a; background: rgba(255,213,74,.12); }
-.upg .uname { font-size: 12px; font-weight: bold; color: #7ec8f7; display: flex; justify-content: space-between; }
-.upg .uname .cost { color: #ffd54a; }
+.upg .uname { font-size: 12px; font-weight: bold; color: #7ec8f7; display: flex; justify-content: space-between; align-items: baseline; gap: 6px; white-space: nowrap; }
+.upg .uname .cost { color: #ffd54a; flex: none; }
+.upg .udesc { white-space: normal; }
 .upg .udesc { font-size: 10px; color: #9fb0d0; line-height: 1.3; margin-top: 2px; }
 .upg.disabled { opacity: .4; cursor: not-allowed; }
 .upg.disabled:hover { border-color: rgba(255,255,255,.16); background: rgba(255,255,255,.07); }
@@ -294,12 +319,32 @@ input:focus { border-color: #ffd54a; box-shadow: 0 0 0 3px rgba(255,213,74,.15);
   border: 1px solid rgba(255,255,255,.14); border-radius: 12px; padding: 8px 14px;
 }
 /* 全屏（全屏元素是html）：画布铺满整个屏幕，object-fit:cover保证不变形，超出部分裁掉边缘 */
-/* 底部栏收纳：收起后仅保留展开按钮 */
-#game.collapsed .bottombar { left: 14px; right: auto; padding: 4px 6px; }
+/* 底部栏收纳：收起后仅保留展开按钮本体（去掉栏的底色/描边），悬浮于屏幕左侧中央 */
+#game.collapsed .bottombar {
+  left: 10px; right: auto; top: 50%; bottom: auto; transform: translateY(-50%);
+  padding: 0; background: none; border: none; backdrop-filter: none; box-shadow: none;
+}
 #game.collapsed .bottombar .chat,
 #game.collapsed .bottombar .keyhint,
 #game.collapsed .bottombar .controls .btn:not(#barToggle) { display: none; }
 .bottombar { transition: padding .15s; }
+
+/* ---------- 音乐询问浮层 ---------- */
+#musicPrompt {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(5, 8, 18, .7); backdrop-filter: blur(3px);
+}
+.mp-box {
+  background: linear-gradient(165deg, #2a3866, #141d38);
+  border: 1px solid rgba(255,255,255,.2); border-radius: 18px;
+  padding: 34px 46px; text-align: center;
+  box-shadow: 0 20px 60px rgba(0,0,0,.6);
+}
+.mp-icon { font-size: 44px; }
+.mp-title { font-size: 22px; font-weight: bold; margin: 12px 0 4px; }
+.mp-sub { font-size: 13px; color: #9fb0d0; }
+#musicPrompt.hidden { display: none; }
 
 :fullscreen #game { max-width: none; width: 100vw; height: 100vh; padding: 0; background: #0b1020; }
 :fullscreen .canvas-wrap { width: 100vw; height: 100vh; border-radius: 0; }

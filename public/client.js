@@ -1,8 +1,10 @@
 /* 弹弹堂 Online 客户端 */
 const cv = document.getElementById('cv');
 const ctx = cv.getContext('2d');
-const W = 1600, H = 900;
-const RES = 2; // SSAA超采样：内部按2倍分辨率渲染，浏览器缩回显示尺寸获得平滑边缘
+ctx.imageSmoothingEnabled = true;
+ctx.imageSmoothingQuality = 'high';
+const W = 1920, H = 1080;
+const RES = 1; // 渲染分辨率与显示尺寸1:1（1920x1080），避免多级缩放带来的锯齿
 cv.width = W * RES;
 cv.height = H * RES;
 
@@ -15,6 +17,8 @@ let terrain = new Float32Array(W);
 const tcv = document.createElement('canvas');
 tcv.width = W; tcv.height = H;
 const tctx = tcv.getContext('2d');
+tctx.imageSmoothingEnabled = true;
+tctx.imageSmoothingQuality = 'high';
 let mask = new Uint8Array(W * H);
 
 let platforms = [];                    // 空中平台（服务器生成，随terrain一起同步）
@@ -141,9 +145,41 @@ function drawPlatforms() {
 }
 
 function applyTerrainRuns(runs) {
+  // 1. 先清除弹坑本体（必须在收集烧焦边之前，否则弹坑内部会被误染黑）
   for (const r of runs) {
     tctx.clearRect(r.x, r.y0, 1, r.y1 - r.y0 + 1);
     for (let y = r.y0; y <= r.y1; y++) mask[y * W + r.x] = 0;
+  }
+  // 2. 渐变焦痕带：由坑缘向外4px（4环），透明度逐环递减形成渐变
+  const done = new Set();
+  let frontier = [];
+  for (const r of runs) {
+    for (let y = r.y0; y <= r.y1; y++) {
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = r.x + dx, ny = y + dy;
+        if (nx < 0 || nx >= W || ny < 0 || ny >= H || mask[ny * W + nx] !== 1) continue;
+        const key = ny * W + nx;
+        if (done.has(key)) continue;
+        done.add(key); frontier.push([nx, ny]);
+      }
+    }
+  }
+  const bands = ['rgba(10,10,10,0.9)', 'rgba(10,10,10,0.72)', 'rgba(10,10,10,0.56)', 'rgba(10,10,10,0.42)',
+                 'rgba(10,10,10,0.3)', 'rgba(10,10,10,0.2)', 'rgba(10,10,10,0.12)', 'rgba(10,10,10,0.07)', 'rgba(10,10,10,0.03)'];
+  for (const color of bands) {
+    tctx.fillStyle = color;
+    for (const [x, y] of frontier) tctx.fillRect(x, y, 1, 1);
+    const next = [];
+    for (const [x, y] of frontier) {
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || nx >= W || ny < 0 || ny >= H || mask[ny * W + nx] !== 1) continue;
+        const key = ny * W + nx;
+        if (done.has(key)) continue;
+        done.add(key); next.push([nx, ny]);
+      }
+    }
+    frontier = next;
   }
 }
 
@@ -193,7 +229,33 @@ function trimImage(img) {
     return { x: minX, y: minY, w: maxX - minX + 1, h: maxY - minY + 1 };
   } catch (e) { return null; }
 }
-charImgs.forEach(ci => ci.addEventListener('load', () => { ci.trim = trimImage(ci); }, { once: true }));
+charImgs.forEach(ci => ci.addEventListener('load', () => {
+  ci.trim = trimImage(ci);
+  // 高质量烘焙：分两步缩放到显示尺寸（52px），运行时只做温和重采样，消除摩尔纹
+  if (ci.trim) {
+    const t = ci.trim, h = 52, w = Math.max(1, Math.round(t.w * h / t.h));
+    ci.baked = { cv: bakeImage(ci, t, w, h), w, h };
+  }
+}, { once: true }));
+/** 两步高质量缩放烘焙：先对半缩（256→~104），再缩到目标尺寸 */
+function bakeImage(srcImg, t, dw, dh) {
+  let src = srcImg, sx = t.x, sy = t.y, sw = t.w, sh = t.h;
+  if (sw > dw * 2 || sh > dh * 2) {
+    const mid = document.createElement('canvas');
+    mid.width = Math.max(dw, Math.ceil(sw / 2));
+    mid.height = Math.max(dh, Math.ceil(sh / 2));
+    const m = mid.getContext('2d');
+    m.imageSmoothingEnabled = true; m.imageSmoothingQuality = 'high';
+    m.drawImage(srcImg, sx, sy, sw, sh, 0, 0, mid.width, mid.height);
+    src = mid; sx = 0; sy = 0; sw = mid.width; sh = mid.height;
+  }
+  const c = document.createElement('canvas');
+  c.width = dw; c.height = dh;
+  const b = c.getContext('2d');
+  b.imageSmoothingEnabled = true; b.imageSmoothingQuality = 'high';
+  b.drawImage(src, sx, sy, sw, sh, 0, 0, dw, dh);
+  return c;
+}
 // 特殊炮弹贴图：四个角色均使用专属贴图（同样做透明裁剪）
 const bulletImgs = {
   0: Object.assign(new Image(), { src: '/texture/oneBullet.png' }),
@@ -201,12 +263,26 @@ const bulletImgs = {
   2: Object.assign(new Image(), { src: '/texture/threeBullet.png' }),
   3: Object.assign(new Image(), { src: '/texture/fourBullet.png' }),
 };
-Object.values(bulletImgs).forEach(bi => bi.addEventListener('load', () => { bi.trim = trimImage(bi); }, { once: true }));
+Object.values(bulletImgs).forEach(bi => bi.addEventListener('load', () => {
+  bi.trim = trimImage(bi);
+  // 烘焙到显示尺寸（最长边26px），运行时直接1:1绘制
+  if (bi.trim) {
+    const t = bi.trim, k = 26 / Math.max(t.w, t.h);
+    const w = Math.max(1, Math.round(t.w * k)), h = Math.max(1, Math.round(t.h * k));
+    bi.baked = { cv: bakeImage(bi, t, w, h), w, h };
+  }
+}, { once: true }));
 // PVE怪物贴图：小兵用原图，Boss用换色版（载入后离屏合成紫色色调）
 const enemyImg = new Image();
 enemyImg.src = '/texture/enemy.png';
 let bossImg = null;
 enemyImg.onload = () => {
+  // 烘焙小兵贴图（显示尺寸约58px）
+  const et = trimImage(enemyImg);
+  if (et) {
+    const k = 58 / Math.max(et.w, et.h);
+    enemyImg.baked = { cv: bakeImage(enemyImg, et, Math.max(1, Math.round(et.w * k)), Math.max(1, Math.round(et.h * k))), w: Math.max(1, Math.round(et.w * k)), h: Math.max(1, Math.round(et.h * k)) };
+  }
   bossImg = document.createElement('canvas');
   bossImg.width = enemyImg.naturalWidth;
   bossImg.height = enemyImg.naturalHeight;
@@ -215,8 +291,16 @@ enemyImg.onload = () => {
   bctx.globalCompositeOperation = 'source-atop'; // 只叠在非透明像素上
   bctx.fillStyle = 'rgba(150, 60, 255, 0.5)';
   bctx.fillRect(0, 0, bossImg.width, bossImg.height);
+  const bt = trimImage(bossImg);
+  if (bt) {
+    const k = 58 / Math.max(bt.w, bt.h);
+    bossImg.baked = { cv: bakeImage(bossImg, bt, Math.max(1, Math.round(bt.w * k)), Math.max(1, Math.round(bt.h * k))), w: Math.max(1, Math.round(bt.w * k)), h: Math.max(1, Math.round(bt.h * k)) };
+  }
 };
 let charging = false, chargeStart = 0;
+let lastFiredAngle = null; // 上一次发射的局部角：对局中作为后续回合的默认角度（首发射击前为null=45）
+let showColliders = false; // 作弊指令 iseeall：显示全部碰撞体
+let lastPower = null; // 上一次发射的蓄力进度（进度条上的淡蓝标记）
 let animating = false;
 let shots = [];                 // 粒子特效
 let floatTexts = [];            // 伤害飘字 {x,y,text,t,color}
@@ -231,8 +315,8 @@ function rr(c, x, y, w, h, r) {
   c.arcTo(x, y, x + w, y, r);
   c.closePath();
 }
-function addFloat(x, y, text, color) {
-  floatTexts.push({ x, y, text, t: 0, color: color || '#ff5252' });
+function addFloat(x, y, text, color, size = 26) {
+  floatTexts.push({ x, y, text, t: 0, color: color || '#ff5252', size });
 }
 let explosions = [];            // 爆炸特效（可能多点）
 let flying = null;              // {points, idx, x, y}
@@ -241,9 +325,11 @@ let clouds = Array.from({length: 6}, () => ({ x: Math.random()*W, y: 40+Math.ran
 /* ---------- 摄像机 ----------
    发射后镜头在0.75秒内推近聚焦炮弹（跟随飞行）；
    0.75秒后回到正常视野；若子弹提前命中，立即提前恢复 */
-const cam = { s: 1, left: 0, top: 0, mode: 'idle', t: 0 };
+const cam = { s: 1, left: 0, top: 0, mode: 'idle', t: 0, ox: 0, oy: 0, shake: null };
 const CAM_ZOOM = 1.92; // 1.6 * 1.2：场景放大20%
 const CAM_FOCUS_MS = 750; // 聚焦动画时长
+const SKY_HEADROOM = 420; // 镜头可上探的天空余量（高飞炮弹仍可见）
+const HOLD_TICKS = 28;    // 命中后镜头保持聚焦的时长（tick）
 
 function camStep() {
   if (cam.mode === 'follow') {
@@ -255,10 +341,45 @@ function camStep() {
       cam.s += (1 + (CAM_ZOOM - 1) * p - cam.s) * 0.18;
       const vw = W / cam.s, vh = H / cam.s;
       const tl = Math.max(0, Math.min(W - vw, lead.x - vw / 2));
-      const tt = Math.max(0, Math.min(H - vh, lead.y - vh / 2));
+      const tt = Math.max(-SKY_HEADROOM, Math.min(H - vh, lead.y - vh / 2)); // 顶部留出天空余量，高飞炮弹可见
       cam.left += (tl - cam.left) * 0.22;
       cam.top += (tt - cam.top) * 0.22;
     }
+  } else if (cam.mode === 'shake' && cam.shake) {
+    // 命中震屏：保持满变焦聚焦命中点，叠加衰减抖动，结束后才收镜
+    const now = performance.now();
+    const dt = Math.min(50, now - (cam.lastT || now));
+    cam.lastT = now;
+    const sh = cam.shake;
+    sh.t += dt / (1000 / 32); // 以32tick为计量单位累计震屏时长
+    const pr = Math.min(1, sh.t / sh.durTicks);
+    cam.s += (CAM_ZOOM - cam.s) * 0.15;
+    const vw = W / cam.s, vh = H / cam.s;
+    const tl = Math.max(0, Math.min(W - vw, sh.x - vw / 2));
+    const tt = Math.max(-SKY_HEADROOM, Math.min(H - vh, sh.y - vh / 2));
+    cam.left += (tl - cam.left) * 0.22;
+    cam.top += (tt - cam.top) * 0.22;
+    const m = sh.mag * (1 - pr) * (1 - pr);
+    cam.ox = (Math.random() - 0.5) * 2 * m;
+    cam.oy = (Math.random() - 0.5) * 2 * m;
+    if (sh.t >= sh.durTicks) {
+      cam.ox = 0; cam.oy = 0;
+      if (cam.holdTicks > 0) cam.mode = 'hold'; // 保持聚焦命中点，等同轮后续命中
+      else { cam.shake = null; cam.mode = 'return'; }
+    }
+  } else if (cam.mode === 'hold' && cam.shake) {
+    // 命中后保持聚焦：等待同轮后续命中（疾风三连发/二次爆破），holdTicks归零才收回
+    const now = performance.now();
+    const dt = Math.min(50, now - (cam.lastT || now));
+    cam.lastT = now;
+    cam.holdTicks -= dt / (1000 / 32);
+    cam.s += (CAM_ZOOM - cam.s) * 0.15;
+    const vw = W / cam.s, vh = H / cam.s;
+    const tl = Math.max(0, Math.min(W - vw, cam.shake.x - vw / 2));
+    const tt = Math.max(-SKY_HEADROOM, Math.min(H - vh, cam.shake.y - vh / 2));
+    cam.left += (tl - cam.left) * 0.22;
+    cam.top += (tt - cam.top) * 0.22;
+    if (cam.holdTicks <= 0) { cam.shake = null; cam.mode = 'return'; }
   } else if (cam.mode === 'return') {
     cam.s += (1 - cam.s) * 0.08;
     cam.left += (0 - cam.left) * 0.08;
@@ -270,7 +391,8 @@ function camStep() {
 }
 
 function applyCam() {
-  ctx.setTransform(cam.s * RES, 0, 0, cam.s * RES, -cam.left * cam.s * RES, -cam.top * cam.s * RES);
+  const ox = cam.ox || 0, oy = cam.oy || 0;
+  ctx.setTransform(cam.s * RES, 0, 0, cam.s * RES, -(cam.left - ox) * cam.s * RES, -(cam.top - oy) * cam.s * RES);
 }
 
 /* ---------- 大厅 ---------- */
@@ -391,11 +513,17 @@ $('rsStartBtn').onclick = () => {
   }
   socket.emit('startGame');
 };
-// 底部栏收纳/展开
+// 底部栏收纳/展开（进入自己回合时自动收起，之后保持状态直到玩家手动切换）
+let barCollapsedByUser = false;
+function setBarCollapsed(c) {
+  $('game').classList.toggle('collapsed', c);
+  $('barToggle').textContent = c ? '▲ 展开' : '▼ 收起';
+}
 $('barToggle').onclick = () => {
   const g = $('game');
   const collapsed = g.classList.toggle('collapsed');
   $('barToggle').textContent = collapsed ? '▲ 展开' : '▼ 收起';
+  barCollapsedByUser = collapsed; // 玩家主动选择的状态，自动收纳不再覆盖
 };
 // 全屏切换
 $('fsBtn').onclick = () => {
@@ -432,6 +560,7 @@ function renderCharPick(r) {
   }
 }
 $('rsLeaveBtn').onclick = () => {
+  SFX.setBgm('lobby'); // 回到大厅/房间即切换大厅音乐
   socket.emit('leaveRoom');
   roomId = null;
   roomScreenEl.classList.add('hidden');
@@ -440,6 +569,7 @@ $('rsLeaveBtn').onclick = () => {
 };
 
 $('leaveBtn').onclick = () => {
+  SFX.setBgm('lobby'); // 离开对局回到大厅音乐
   socket.emit('leaveRoom');
   roomId = null;
   gameEl.classList.add('hidden');
@@ -474,11 +604,13 @@ socket.on('turn', (t) => {
   curTurnSlot = t.turn;
   wind = t.wind;
   charging = false;
+  SFX.stopChargeSound();
   // 正常流程 shotEnd 先于本事件到达；无论如何都清掉飞行/动画状态，绝不把输入卡死在上一个回合
   if (animating) { flying = null; animating = false; }
   // 新回合开始意味着对局已在进行：收起胜负结算浮层（非房主不会触发rematch按钮，靠这里关闭）
   hideOverlay();
-  cardUsed = false; renderCards(); // 注意：不清手牌，服务器在本回合开始时已发新牌
+  cardUsed = false; fBought = false; renderCards(); renderPoints(); // 注意：不清手牌，服务器在本回合开始时已发新牌
+  if (curTurnSid === socket.id && !barCollapsedByUser) setBarCollapsed(true); // 自己的回合自动收起底栏
   $('timer').textContent = t.timeLeft;
   $('timer').classList.toggle('urgent', t.timeLeft <= 5);
   if (me) {
@@ -501,6 +633,7 @@ socket.on('timer', (s) => {
 
 socket.on('gameover', ({ winner }) => {
   SFX.setBgm('lobby');
+  lastFiredAngle = null; // 新对局恢复默认45°
   // 我方胜利奏凯歌，失败奏哀乐
   const myTeam = me ? me.team : 0;
   const iWon = winner === '玩家队' || winner === '红队' && myTeam === 0 || winner === '蓝队' && myTeam === 1;
@@ -531,7 +664,15 @@ socket.on('msg', (m) => {
 /* ---------- 聊天 ---------- */
 function sendChat() {
   const t = $('chatInput').value.trim();
-  if (t) { socket.emit('chat', t); $('chatInput').value = ''; }
+  if (!t) return;
+  if (t === 'iseeall') { // 作弊指令：切换碰撞体显示
+    showColliders = !showColliders;
+    addChat(null, `碰撞体显示：${showColliders ? '开' : '关'}`);
+    $('chatInput').value = '';
+    return;
+  }
+  socket.emit('chat', t);
+  $('chatInput').value = '';
 }
 $('chatBtn').onclick = sendChat;
 $('chatInput').addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
@@ -580,7 +721,7 @@ document.addEventListener('keydown', (e) => {
     case 'KeyW': case 'ArrowUp': startAngleAdj(1); e.preventDefault(); break;
     case 'KeyS': case 'ArrowDown': startAngleAdj(-1); e.preventDefault(); break;
     case 'Space':
-      if (!charging) { charging = true; chargeStart = performance.now(); SFX.play('charge'); }
+      if (!charging) { charging = true; chargeStart = performance.now(); SFX.play('charge'); SFX.startChargeSound(); }
       e.preventDefault();
       break;
   }
@@ -588,6 +729,7 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('keyup', (e) => {
   if (e.code === 'Space' && charging) {
     charging = false;
+    SFX.stopChargeSound();
     if (myTurn()) doFire();
   }
   if (['KeyA', 'KeyD'].includes(e.code)) stopMove();
@@ -676,17 +818,31 @@ socket.on('moved', ({ slot, x, y, budget }) => {
 
 let moveBudget = 0;
 
+/** 脚下坡面的世界仰角（度，右升为正，平地为0） */
+function slopeElevDeg(p) {
+  const xa = Math.max(0, Math.min(W - 1, Math.round(p.x - 14)));
+  const xb = Math.max(0, Math.min(W - 1, Math.round(p.x + 14)));
+  const ya = groundBelowLocal(xa, p.y - 8), yb = groundBelowLocal(xb, p.y - 8);
+  if (ya >= H || yb >= H) return 0;
+  return Math.atan2(ya - yb, xb - xa) * 180 / Math.PI;
+}
 function setAngle(a) {
-  // 角度范围 10~90（相对朝向）：高于90°越过边界自动转身；低于10°直接钳住，可保持斜下角度不转身
-  if (a > 90) { dir = -dir; a = 180 - a; }
-  angle = Math.max(10, Math.round(a));
+  // 角度 = 与世界水平面的仰角：W永远抬高、S永远压低（单调）。
+  // 地形影响边界：面朝上坡时最低仰角被坡面顶高（不能往山体里打），面朝下坡可压到-30往坡下打
+  let minE = -30;
+  if (me) {
+    const se = slopeElevDeg(me);
+    const uphill = (dir === 1 && se > 0) || (dir === -1 && se < 0);
+    if (uphill) minE = Math.abs(se) + 10;
+  }
+  angle = Math.max(minE, Math.min(90, Math.round(a)));
   if (me) me.dir = dir; // 同步自己的贴图朝向
-  if (myTurn()) socket.emit('aim', { angle, power, dir });
+  socket.emit('aim', { angle, power, dir }); // 任何时刻都同步，防止预瞄与实际发射不一致
   updateAimHud();
 }
 function setPower(p) {
   power = Math.max(40, Math.min(160, Math.round(p)));
-  if (myTurn()) socket.emit('aim', { angle, power });
+  socket.emit('aim', { angle, power }); // 任何时刻都同步
   updateAimHud();
 }
 
@@ -702,6 +858,8 @@ function holdBtn(btn, fn) {
 
 function doFire() {
   setPower(powerFromCharge());
+  lastPower = power; // 记录本次发射力度，进度条上以淡蓝标记显示
+  lastFiredAngle = angle; // 记录本次发射角度，作为后续回合的默认角度
   socket.emit('fire');
   // 不再乐观置 animating：等服务器 shotBegin 确认起飞后再锁定输入，
   // 若这一炮被服务器拒绝（如回合恰好超时切换），输入不会被卡死
@@ -712,8 +870,18 @@ function powerFromCharge() {
   return Math.min(160, 40 + held * 60); // 40起步，约2秒蓄满160
 }
 
+/** 最终世界仰角：φ = 坡度倾角tilt + 局部瞄准角（无额外限制，坡度自然影响最终方向） */
+function finalWorldAngle() {
+  let tilt = 0;
+  if (me) tilt = slopeElevDeg(me) * dir; // 面朝上坡为正、下坡为负
+  const phi = tilt + angle;
+  return { phi, a: angle };
+}
+
 function updateAimHud() {
+  const fa = finalWorldAngle();
   $('angleVal').textContent = angle;
+  $('finalAngleVal').textContent = Math.round(fa.phi);
   $('powerVal').textContent = Math.round(power);
   $('faceVal').textContent = dir === 1 ? '→' : '←';
 }
@@ -738,7 +906,7 @@ function updateHUD() {
   $('windArrow').textContent = wind > 0.2 ? '→' : wind < -0.2 ? '←' : '·';
   const cur = active[curTurnSlot];
   $('turnLabel').textContent = cur ? (cur.isYou ? '🎯 你的回合！' : `${cur.name} 行动中…`) : '等待玩家…';
-  if (me) { angle = 45; power = 40; updateAimHud(); }
+  if (me) { angle = lastFiredAngle !== null ? lastFiredAngle : 45; power = 40; updateAimHud(); }
   renderCards();
   renderPoints();
 }
@@ -771,6 +939,63 @@ socket.on('shotBegin', (d) => {
 });
 
 // 服务器每个tick发来的权威位置：只记为目标点，渲染时逐帧逼近（客户端插值）
+// 实时爆炸事件（命中瞬间/二次爆破）：火球、音效、暴击标记、伤害飘字即时呈现
+let boomMarks = []; // 爆炸落点标记（iseeall观察用）：{x,y,r,t,tag}
+socket.on('boomFx', (d) => {
+  applyTerrainRuns(d.runs || []); // 命中瞬间立即显示该发弹坑
+  boomMarks.push({ x: d.x, y: d.y, r: d.r, t: 0, tag: d.tag || '' });
+  explosions.push({ x: d.x, y: d.y, r: d.r, t: 0 });
+  SFX.play('hit' + (flying ? flying.char || 0 : d.char || 0));
+  for (let i = 0; i < 28; i++) {
+    const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 5;
+    shots.push({ x: d.x, y: d.y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp - 2, life: 1 });
+  }
+  if (d.crit) addFloat(d.x, d.y - 30, '暴击！', '#ffd54a');
+  // 命中瞬间立即震屏（聚焦命中点）；强度按角色人设区分
+  const SHAKE_BY_CHAR = [
+    { durTicks: 18, mag: 14 }, // 轰侠：炸弹，最沉重
+    { durTicks: 8,  mag: 4 },  // 影袭：弓箭，轻快短促
+    { durTicks: 10, mag: 6 },  // 鹰眼：魔法，中等余韵
+    { durTicks: 6,  mag: 3 },  // 疾风：飞镖，最轻最快
+  ];
+  const shk = SHAKE_BY_CHAR[(flying ? flying.char : d.char) || 0] || SHAKE_BY_CHAR[0];
+  cam.mode = 'shake';
+  cam.shake = { x: d.x, y: d.y, t: 0, durTicks: shk.durTicks, mag: shk.mag };
+  cam.holdTicks = HOLD_TICKS; // 每次命中刷新保持窗口
+  for (const dd of d.dmg || []) {
+    const p = players.find(q => q.slot === dd.slot);
+    if (p) {
+      if (dd.crit) addFloat(p.x, p.y - 64, '-' + dd.damage, '#ffd54a', 32);
+      else addFloat(p.x, p.y - 64, '-' + dd.damage);
+    }
+  }
+  for (const md of d.mDmg || []) {
+    if (md.tag === 'boom2') addFloat(md.x, md.y - 20, '-' + md.damage, '#40c4ff');
+    else if (md.crit) addFloat(md.x, md.y - 20, '-' + md.damage, '#ffd54a', 32);
+    else addFloat(md.x, md.y - 20, '-' + md.damage, '#ff9100');
+  }
+});
+
+// Boss“小兵炮弹”：32tick服务器权威抛射，客户端航位推算平滑飞行，落地生成小兵
+let minionShots = {}; // id -> {x, y, sx, sy, st, vx, vy, tx, ty}
+const finishedSpawns = new Set(); // 落地动画已完成的小兵：防止闪烁
+socket.on('minionShotBegin', (d) => {
+  minionShots[d.id] = { x: d.x, y: d.y, sx: d.x, sy: d.y, st: performance.now(), vx: d.vx, vy: d.vy, tx: d.x, ty: d.y, lastT: performance.now() };
+});
+socket.on('minionShotTick', (d) => {
+  const ms = minionShots[d.id];
+  if (!ms) return;
+  ms.sx = d.x; ms.sy = d.y; ms.st = performance.now();
+  ms.tx = d.x; ms.ty = d.y;
+  if (d.done) { ms.vx = 0; ms.vy = 0; ms.done = true; } // 落地冻结：不再外推滑行
+  else { ms.vx = d.vx; ms.vy = d.vy; }
+});
+socket.on('minionShotEnd', (d) => {
+  delete minionShots[d.id];
+  finishedSpawns.add(d.id);
+  mergeMonsters([d.minion]); // 小兵在落点现身
+});
+
 socket.on('shotTick', (d) => {
   if (flying) {
     // 炮弹还在飞：镜头聚焦动态续期（子弹时间会拉长飞行，固定750ms会提前收镜）
@@ -783,30 +1008,15 @@ socket.on('shotTick', (d) => {
       fl.tx = d.pts[i].x; fl.ty = d.pts[i].y;
       flying.list[i].vx = d.pts[i].vx || flying.list[i].vx;
       flying.list[i].vy = d.pts[i].vy || flying.list[i].vy;
+      flying.list[i].done = !!d.pts[i].done;
     }
   }
 });
 
 socket.on('shotEnd', (data) => {
   try {
-    const exs = data.explosions && data.explosions.length ? data.explosions : (data.explosion ? [data.explosion] : []);
-    if (exs.length) {
-      SFX.play('hit' + (flying ? flying.char || 0 : 0)); // 按角色播放专属命中音效
-      for (const e of exs) {
-        explosions.push({ ...e, t: 0 });
-        for (let i = 0; i < 28; i++) {
-          const a = Math.random() * Math.PI * 2, sp = 2 + Math.random() * 5;
-          shots.push({ x: e.x, y: e.y, vx: Math.cos(a)*sp, vy: Math.sin(a)*sp - 2, life: 1 });
-        }
-      }
-      if (data.crit) {
-        const e0 = exs[0];
-        addFloat(e0.x, e0.y - 30, '暴击！', '#ffd54a');
-      }
-    }
-    if ((data.damage || []).length) SFX.play('hit'); // 有玩家受伤
-    // 命中：立即提前恢复到正常视野（若聚焦动画还在进行）
-    if (cam.mode === 'follow') cam.mode = 'return';
+    // 火球/音效/飘字/震屏均已由实时boomFx呈现；shotEnd只负责权威状态结算。
+    // 镜头由 hold 窗口到期后自动收回
     // 应用伤害与地形
     for (const d of data.damage || []) {
       const p = players.find(q => q.slot === d.slot);
@@ -819,15 +1029,7 @@ socket.on('shotEnd', (data) => {
       const p = players.find(q => q.slot === pos.slot);
       if (p) { p.x = pos.x; p.y = pos.y; }
     }
-    // 伤害飘字：在受伤者头顶显示实际伤害
-    for (const d of data.damage || []) {
-      const p = players.find(q => q.slot === d.slot);
-      if (p) addFloat(p.x, p.y - 64, '-' + d.damage);
-    }
-    for (const md of data.mDmg || []) {
-      addFloat(md.x, md.y - 20, '-' + md.damage, '#ff9100');
-    }
-    while (pendingFalls.length) applyFalls(pendingFalls.shift());
+    while (pendingFalls.length) applyFalls(pendingFalls.shift()); // 飘字已由实时boomFx呈现
   } finally {
     // 无论处理过程是否出错，都必须释放动画状态，否则永远无法开火
     flying = null;
@@ -841,6 +1043,7 @@ socket.on('turnEnd', () => {
   curTurnSlot = -1;
   curTurnSid = null;
   charging = false;
+  SFX.stopChargeSound();
   stopMove();
   stopAngleAdj();
   updateHUD();
@@ -857,24 +1060,45 @@ socket.on('cardPlayed', (d) => {
 
 /* ---------- 积分强化面板 ---------- */
 const UPGRADES = [
-  { id: 'a', name: '强化A', cost: 40,  desc: '追加一个发射物(30%伤害,可暴击)' },
+  { id: 'a', name: '强化A', cost: 50,  desc: '追加一个发射物(30%伤害,可暴击)' },
   { id: 'b', name: '强化B', cost: 15,  desc: '暴击几率+8%' },
   { id: 'c', name: '强化C', cost: 60,  desc: '所有发射物伤害+30%' },
   { id: 'd', name: '强化D', cost: 25,  desc: '所有发射物伤害+20' },
+  { id: 'e', name: '强化E', cost: 35,  desc: '汲血:炮击伤害的30%转化为生命' },
+  { id: 'f', name: '强化F', cost: 30,  desc: '精准:不受距离衰减,边缘满伤害' },
+  { id: 'g', name: '强化G', cost: 80,  desc: '二次爆破:命中点二次爆炸(40%伤害)' },
   { id: 's', name: '强化S', cost: 200, desc: '伤害+100%（蓄积两回合）' },
 ];
+let fBought = false; // 强化F本回合已购买（一次性）
+let lastPtsUsable = null;
 function renderPoints() {
-  const pv = $('pointsVal'), list = $('upgList');
-  if (!pv || !list) return;
+  const pv = $('pointsVal'), list = $('upgList'), panel = $('pointsPanel');
+  if (!pv || !list || !panel) return;
   pv.textContent = '积分 ' + (me ? (me.points || 0) : 0);
   const usable = myTurn();
+  // 状态切换时触发进入/退出动画
+  if (usable !== lastPtsUsable) {
+    panel.classList.remove('anim-in', 'anim-out');
+    void panel.offsetWidth; // 强制重排以重启动画
+    panel.classList.add(usable ? 'anim-in' : 'anim-out');
+    lastPtsUsable = usable;
+  }
   list.innerHTML = '';
   for (const u of UPGRADES) {
     const div = document.createElement('div');
     const afford = me && (me.points || 0) >= u.cost;
-    div.className = 'upg' + (usable && afford ? '' : ' disabled');
-    div.innerHTML = `<div class="uname"><span>${u.name}</span><span class="cost">${u.cost}</span></div><div class="udesc">${u.desc}</div>`;
-    if (usable && afford) div.onclick = () => socket.emit('buyUpgrade', u.id);
+    const soldOut = u.id === 'f' && fBought;
+    div.className = 'upg' + (usable && afford && !soldOut ? '' : ' disabled');
+    div.innerHTML = `<div class="uname"><span>${u.name}${soldOut ? '（已生效）' : ''}</span><span class="cost">${u.cost}</span></div><div class="udesc">${u.desc}</div>`;
+    if (usable && afford && !soldOut) {
+      div.onmouseenter = () => SFX.play('upgHover'); // 仅可用卡片：悬停清脆咔哒
+      div.onclick = () => {
+        SFX.play('upgClick'); // 金铁点击声
+        if (u.id === 'f') fBought = true;
+        socket.emit('buyUpgrade', u.id);
+        renderPoints();
+      };
+    };
     list.appendChild(div);
   }
 }
@@ -923,7 +1147,7 @@ function draw() {
 
   // 太阳
   ctx.fillStyle = '#ffe37e';
-  ctx.beginPath(); ctx.arc(1460, 110, 42, 0, 7); ctx.fill();
+  ctx.beginPath(); ctx.arc(1780, 130, 46, 0, 7); ctx.fill();
 
   // 地形（离屏画布，爆炸会实时擦除出圆形弹坑）
   ctx.drawImage(tcv, 0, 0);
@@ -934,6 +1158,78 @@ function draw() {
     drawTank(p);
   }
   drawMonsters();
+
+  // 作弊视图：爆炸落点标记（金色虚线圈+X，约1.6秒渐隐）——用于确认每次爆炸的实际位置
+  if (showColliders && boomMarks.length) {
+    ctx.save();
+    ctx.setLineDash([6, 5]);
+    for (let i = boomMarks.length - 1; i >= 0; i--) {
+      const bm = boomMarks[i];
+      bm.t += 0.01;
+      if (bm.t >= 1) { boomMarks.splice(i, 1); continue; }
+      ctx.globalAlpha = 1 - bm.t;
+      ctx.strokeStyle = bm.tag === 'boom2' ? '#40c4ff' : '#ffd54a';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(bm.x, bm.y, bm.r, 0, 7); ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(bm.x - 8, bm.y - 8); ctx.lineTo(bm.x + 8, bm.y + 8);
+      ctx.moveTo(bm.x + 8, bm.y - 8); ctx.lineTo(bm.x - 8, bm.y + 8);
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  // 作弊视图：显示全部碰撞体（怪物碰撞圆=红，玩家炮弹命中范围=绿，飞行炮弹碰撞圆=黄）
+  if (showColliders) {
+    ctx.save();
+    ctx.lineWidth = 2;
+    if (flying && flying.list) {
+      const BR = [0, 8, 8, 8];   // 各角色炮弹的地形采样半径（与服务器一致）
+      const ER = [77, 55, 55, 55]; // 各角色炮弹的溅射（爆炸）半径
+      ctx.strokeStyle = 'rgba(255, 230, 80, .9)';
+      for (const fl of flying.list) {
+        if (fl.done) continue;
+        ctx.beginPath(); ctx.arc(fl.x, fl.y, BR[flying.char] || 0, 0, 7); ctx.stroke();
+        ctx.fillStyle = 'rgba(255, 230, 80, .9)';
+        ctx.fillRect(fl.x - 1, fl.y - 1, 2, 2);
+        // 淡金色溅射范围：落点在此圆内的目标都会被爆炸波及（轰侠半径+40%）
+        ctx.strokeStyle = 'rgba(255, 213, 74, .25)';
+        ctx.fillStyle = 'rgba(255, 213, 74, .05)';
+        ctx.beginPath(); ctx.arc(fl.x, fl.y, ER[flying.char] || 55, 0, 7); ctx.fill(); ctx.stroke();
+      }
+    }
+    for (const id of Object.keys(minionShots)) {
+      const ms = minionShots[id];
+      ctx.strokeStyle = 'rgba(200, 130, 255, .9)';
+      ctx.beginPath(); ctx.arc(ms.x, ms.y, 5, 0, 7); ctx.stroke();
+    }
+    for (const p of players.filter(q => !q.spectator && q.alive)) {
+      const cH = 26;
+      const slDeg = slopeElevDeg(p) * (p.dir || 1);
+      const sl = slDeg * Math.PI / 180;
+      const cx = p.x + Math.sin(sl) * cH, cy = p.y - Math.cos(sl) * cH;
+      ctx.strokeStyle = 'rgba(80, 255, 120, .85)';
+      ctx.beginPath(); ctx.arc(cx, cy, 20, 0, 7); ctx.stroke();
+      ctx.fillStyle = 'rgba(80, 255, 120, .9)';
+      ctx.fillRect(cx - 1, cy - 1, 2, 2);
+    }
+    for (const m of monsters) {
+      if (m.spawning || !m.alive) continue;
+      ctx.strokeStyle = 'rgba(255, 70, 70, .85)';
+      const cH = m.r * 1.3;
+      const mxa = Math.max(0, Math.min(W - 1, Math.round(m.rx - 14)));
+      const mxb = Math.max(0, Math.min(W - 1, Math.round(m.rx + 14)));
+      const mya = groundBelowLocal(mxa, m.ry - 8), myb = groundBelowLocal(mxb, m.ry - 8);
+      const sl = (mya >= H || myb >= H) ? 0 : Math.atan2(myb - mya, mxb - mxa);
+      const cx = m.rx + Math.sin(sl) * cH, cy = m.ry - Math.cos(sl) * cH;
+      ctx.beginPath(); ctx.arc(cx, cy, m.r, 0, 7); ctx.stroke();
+      ctx.fillStyle = 'rgba(255, 70, 70, .9)';
+      ctx.fillRect(cx - 1.5, cy - 1.5, 3, 3); // 碰撞圆心（随坡面旋转）
+    }
+    ctx.restore();
+  }
 
   // 瞄准指示
   // 蓄力时按当前力度显示轨迹；调整角度(W/S)期间显示最小力度(40)的参考轨迹
@@ -949,6 +1245,7 @@ function draw() {
     const velMs = 0.7 * flying.ts * 0.096; // 服务器速度单位 → 像素/毫秒
     const smooth = 1 - Math.exp(-dt / 40); // 约40ms时间常数，既跟手又无拉锯
     for (const fl of flying.list) {
+      if (fl.done) continue; // 已命中的弹体不再绘制（爆炸由boomFx呈现）
       const predX = fl.sx + fl.vx * velMs * (now - fl.st);
       const predY = fl.sy + fl.vy * velMs * (now - fl.st);
       fl.x += (predX - fl.x) * smooth;
@@ -965,15 +1262,17 @@ function draw() {
         ctx.beginPath(); ctx.arc(t.x, t.y, 1.5 + k * 3.5, 0, 7); ctx.fill();
       }
       ctx.globalAlpha = 1;
-      if (bimg && bimg.complete && bimg.trim) {
-        const t = bimg.trim;
-        const sc = 26 / Math.max(t.w, t.h); // 裁剪后最长边归一到26px
-        const w = t.w * sc, h = t.h * sc;
-        const ang = Math.atan2(fl.ty - fl.y, fl.tx - fl.x);
+      if (bimg && bimg.baked) {
+        // 旋转平滑：目标角取速度方向（服务器同步，平滑变化），显示角度按最短弧指数逼近
+        const targetAng = Math.atan2(fl.vy, fl.vx);
+        if (fl.ang === undefined) fl.ang = targetAng;
+        let aDiff = targetAng - fl.ang;
+        aDiff = Math.atan2(Math.sin(aDiff), Math.cos(aDiff));
+        fl.ang += aDiff * (1 - Math.exp(-dt / 90));
         ctx.save();
         ctx.translate(fl.x, fl.y);
-        ctx.rotate(ang);
-        ctx.drawImage(bimg, t.x, t.y, t.w, t.h, -w / 2, -h / 2, w, h);
+        ctx.rotate(fl.ang);
+        ctx.drawImage(bimg.baked.cv, -bimg.baked.w / 2, -bimg.baked.h / 2, bimg.baked.w, bimg.baked.h);
         ctx.restore();
       } else {
         ctx.fillStyle = '#222';
@@ -984,9 +1283,27 @@ function draw() {
     }
   }
 
+  // Boss“小兵炮弹”飞行（航位推算：速度外推+向服务器位置纠偏）
+  const nowMs = performance.now();
+  for (const id of Object.keys(minionShots)) {
+    const ms = minionShots[id];
+    const dt = Math.min(50, nowMs - (ms.lastT || nowMs));
+    ms.lastT = nowMs;
+    const velMs = 0.7 * 0.096; // 服务器速度单位 → 像素/毫秒
+    ms.x += ms.vx * velMs * dt;
+    ms.y += ms.vy * velMs * dt;
+    ms.x += (ms.tx - ms.x) * 0.08;
+    ms.y += (ms.ty - ms.y) * 0.08;
+    ctx.fillStyle = 'rgba(123, 31, 162, .9)';
+    ctx.beginPath(); ctx.arc(ms.x, ms.y, 8, 0, 7); ctx.fill();
+    ctx.fillStyle = 'rgba(186, 104, 200, .45)';
+    ctx.beginPath(); ctx.arc(ms.x, ms.y, 12, 0, 7); ctx.fill();
+  }
+
   // 爆炸（支持多个爆炸点，角色three三发各自爆炸）
   for (let i = explosions.length - 1; i >= 0; i--) {
     const ex = explosions[i];
+    if (ex.t < 0) { ex.t += 0.08; continue; } // 延迟相位：二次爆破稍后出现
     ex.t += 0.08;
     if (ex.t >= 1) { explosions.splice(i, 1); continue; }
     const r = ex.r * (0.3 + ex.t * 0.9);
@@ -1007,13 +1324,13 @@ function draw() {
     ctx.globalAlpha = s.life;
     ctx.fillRect(s.x, s.y, 4, 4);
   }
-  // 伤害飘字：上浮并渐隐
-  ctx.font = 'bold 26px sans-serif';
+  // 伤害飘字：上浮并渐隐（大小按条目）
   ctx.textAlign = 'center';
   for (let i = floatTexts.length - 1; i >= 0; i--) {
     const f = floatTexts[i];
     f.t += 0.012;
     if (f.t >= 1) { floatTexts.splice(i, 1); continue; }
+    ctx.font = `bold ${f.size || 26}px sans-serif`;
     ctx.globalAlpha = Math.min(1, (1 - f.t) * 1.6);
     ctx.fillStyle = 'rgba(0,0,0,.7)';
     ctx.fillText(f.text, f.x + 2, f.y - f.t * 56 + 2);
@@ -1033,8 +1350,19 @@ function draw() {
   if (charging) {
     power = powerFromCharge();
     updateAimHud();
+    SFX.updateChargeSound((power - 40) / 120); // 蓄力音调随进度上升
+  } else {
+    SFX.stopChargeSound();
   }
   $('powerBar').style.width = ((Math.max(40, Math.min(160, power)) - 40) / 120 * 100) + '%'; // 进度条在40~160间插值
+  // 上次蓄力标记：淡蓝色竖线
+  const mark = $('powerMark');
+  if (lastPower !== null) {
+    mark.style.display = 'block';
+    mark.style.left = ((Math.max(40, Math.min(160, lastPower)) - 40) / 120 * 100) + '%';
+  } else {
+    mark.style.display = 'none';
+  }
 
   requestAnimationFrame(draw);
 }
@@ -1056,8 +1384,10 @@ function drawTank(p) {
   if (cimg.complete && cimg.naturalWidth) {
     ctx.save();
     ctx.scale(-d, 1);
-    if (cimg.trim) {
-      // 用修剪后的有效区域绘制：底部贴合地面，整体高度52px
+    if (cimg.baked) {
+      // 使用烘焙好的显示尺寸贴图：底部贴合地面，重采样温和无摩尔纹
+      ctx.drawImage(cimg.baked.cv, -cimg.baked.w / 2, -cimg.baked.h, cimg.baked.w, cimg.baked.h);
+    } else if (cimg.trim) {
       const t = cimg.trim;
       const sc = 52 / t.h;
       const w = t.w * sc, h = t.h * sc;
@@ -1094,16 +1424,18 @@ function drawTank(p) {
   ctx.restore();
 }
 
-/** 弹道预测轨迹：与服务器相同物理公式的点状抛物线（发射后消失） */
+/** 弹道预测轨迹：与世界仰角一致的发射方向 + 相同物理公式，预览长度有限 */
 function drawAim(p) {
-  const a = (angle * Math.PI) / 180;
+  // 最终方向 = 世界仰角φ（已含坡度影响并钳制），与服务器换算一致
+  const fa = finalWorldAngle();
+  const a = (fa.phi * Math.PI) / 180;
   const speed = power * 0.1425;
   let x = p.x + Math.cos(a) * 22 * dir;
-  let y = p.y - Math.sin(a) * 22 - 6;
+  let y = p.y - Math.sin(a) * 22;
   let vx = Math.cos(a) * speed * dir;
   let vy = -Math.sin(a) * speed;
   ctx.save();
-  for (let step = 0; step < 500; step++) {
+  for (let step = 0; step < 130; step++) { // 预览长度限制（约1.4秒飞行）
     x += vx * 0.7;
     y += vy * 0.7;
     vy += 0.28 * 0.7;
@@ -1111,7 +1443,7 @@ function drawAim(p) {
     if (x < 0 || x > W || y > H) break;
     if (step > 6 && mask[Math.round(y) * W + Math.round(x)] === 1) break;
     if (step % 4 === 0) {
-      ctx.globalAlpha = Math.max(0.3, 1 - step / 320);
+      ctx.globalAlpha = Math.max(0.3, 1 - step / 130);
       ctx.fillStyle = '#ffffff';
       ctx.strokeStyle = 'rgba(0,0,0,.5)';
       ctx.lineWidth = 1;
@@ -1126,6 +1458,7 @@ function drawAim(p) {
 function drawMonsters() {
   for (const m of monsters) {
     if (!m.alive) continue;
+    if (m.spawning && !finishedSpawns.has(m.id)) continue; // 孵化中的小兵由抛射动画呈现
     if (m.rx === undefined) { m.rx = m.x; m.ry = m.y; }
     const sp = 3; // 每帧最大逼近距离（约180px/秒，略快于怪物步速）
     m.rx += Math.max(-sp, Math.min(sp, m.x - m.rx));
@@ -1145,7 +1478,8 @@ function drawMonsters() {
       const size = m.r * 2.6;
       ctx.save();
       ctx.scale(d, 1);
-      ctx.drawImage(img, -size / 2, -size, size, size); // 立于地表
+      if (img.baked) ctx.drawImage(img.baked.cv, -size / 2, -size, size, size); // 烘焙贴图立于地表
+      else ctx.drawImage(img, -size / 2, -size, size, size);
       ctx.restore();
     } else {
       // 贴图未加载时回退为简单圆球
@@ -1183,6 +1517,19 @@ updateAimHud();
 document.addEventListener('click', (e) => {
   if (e.target.closest('.btn')) SFX.play('click');
 });
+// 音乐询问浮层：用户选择后才开始播放（规避浏览器自动播放限制）
+$('mpYes').onclick = () => {
+  SFX.setBgmOn(true);
+  SFX.setBgm('lobby');
+  $('musicPrompt').classList.add('hidden');
+  $('bgmBtn').textContent = '🔊 音乐';
+};
+$('mpNo').onclick = () => {
+  SFX.setBgmOn(false);
+  $('musicPrompt').classList.add('hidden');
+  $('bgmBtn').textContent = '🔇 静音';
+};
+
 // 背景音乐开关
 $('bgmBtn').onclick = () => {
   SFX.init();

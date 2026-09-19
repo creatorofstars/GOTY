@@ -66,7 +66,7 @@
 <!-- 游戏：HUD全部叠加在画布内 -->
 <div id="game" class="screen hidden">
   <div class="canvas-wrap">
-    <canvas id="cv" width="1600" height="900"></canvas>
+    <canvas id="cv" width="1920" height="1080"></canvas>
 
     <div class="topbar">
       <div class="pinfo" id="team0info">
@@ -103,11 +103,12 @@
 
     <div id="aimHud">
       <span>朝向 <b id="faceVal">→</b></span>
-      <span>角度 <b id="angleVal">45</b>°</span>
-      <span>力度 <b id="powerVal">50</b></span>
+      <span>局部角 <b id="angleVal">45</b>°</span>
+      <span>最终角 <b id="finalAngleVal">45</b>°</span>
+      <span>力度 <b id="powerVal">40</b></span>
       <span>移动 <b id="moveVal">150</b></span>
     </div>
-    <div id="powerBarWrap"><div id="powerBar"></div></div>
+    <div id="powerBarWrap"><div id="powerBar"></div><div id="powerMark"></div></div>
     <div id="cardHand"></div>
     <div id="pointsPanel">
       <div id="pointsVal">积分 0</div>
@@ -115,6 +116,19 @@
     </div>
     <div id="toast" class="hidden"></div>
     <div id="overlay" class="hidden"></div>
+  </div>
+</div>
+
+<!-- 音乐询问浮层（浏览器自动播放策略：需用户点击后才能播放） -->
+<div id="musicPrompt">
+  <div class="mp-box">
+    <div class="mp-icon">🎵</div>
+    <p class="mp-title">是否打开游戏音乐？</p>
+    <p class="mp-sub">包含背景音乐与战斗音效</p>
+    <div class="row" style="justify-content:center;margin:14px 0 0">
+      <button id="mpYes" class="btn primary">🎵 打开音乐</button>
+      <button id="mpNo" class="btn">🔇 暂不</button>
+    </div>
   </div>
 </div>
 

@@ -11,8 +11,8 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-const WORLD_W = 1600;
-const WORLD_H = 900;
+const WORLD_W = 1920;
+const WORLD_H = 1080;
 const GRAVITY = 0.28;
 const TURN_TIME = 20;          // 秒
 const MAX_POWER = 160;
@@ -47,11 +47,14 @@ const CARDS = {
 };
 /** 积分强化定义 */
 const UPGRADES = {
-  a: { id: 'a', name: '强化A', cost: 40,  desc: '追加一个发射物(30%伤害,可暴击)' },
+  a: { id: 'a', name: '强化A', cost: 50,  desc: '追加一个发射物(30%伤害,可暴击)' },
   b: { id: 'b', name: '强化B', cost: 15,  desc: '暴击几率+8%' },
   c: { id: 'c', name: '强化C', cost: 60,  desc: '所有发射物伤害+30%' },
   d: { id: 'd', name: '强化D', cost: 25,  desc: '所有发射物伤害+20' },
   s: { id: 's', name: '强化S', cost: 200, desc: '伤害+100%（需蓄积两回合积分）' },
+  e: { id: 'e', name: '强化E', cost: 35,  desc: '汲血：本次炮击伤害的30%转化为生命' },
+  f: { id: 'f', name: '强化F', cost: 30,  desc: '精准：不受距离衰减，边缘保持满伤害' },
+  g: { id: 'g', name: '强化G', cost: 80,  desc: '二次爆破：命中点引发二次爆炸(半径40,40%伤害)' },
 };
 function drawCards() {
   const ids = Object.keys(CARDS);
@@ -147,6 +150,17 @@ function groundBelow(mask, x, fromY) {
   return WORLD_H;
 }
 
+/** 碰撞圆心：贴图随坡面旋转后的视觉中心（世界坐标）。centerH = 圆心距脚底的高度 */
+function colCenter(room, x, y, centerH) {
+  const xa = Math.max(0, Math.min(WORLD_W - 1, Math.round(x - 14)));
+  const xb = Math.max(0, Math.min(WORLD_W - 1, Math.round(x + 14)));
+  const ya = groundBelow(room.mask, xa, y - 8), yb = groundBelow(room.mask, xb, y - 8);
+  let tx = xb - xa, ty = yb - ya;
+  if (ya >= WORLD_H || yb >= WORLD_H) { tx = 1; ty = 0; }
+  const l = Math.hypot(tx, ty) || 1;
+  return { cx: x + (ty / l) * centerH, cy: y - (tx / l) * centerH };
+}
+
 /** 在 2D 网格上挖圆形弹坑，返回每列被清除的区段（增量同步给客户端） */
 function carveMask(mask, cx, cy, r) {
   const runs = [];
@@ -186,6 +200,8 @@ function createRoom(name, pve) {
     shotTimer: null,      // 炮弹32tick模拟循环
     timeLeft: TURN_TIME,
     shots: 0,
+    spawnSeq: 0, // Boss产小兵计数
+    bossShot: null, bossShotTimer: null,
     createdAt: Date.now(),
   };
   room.platforms = genPlatforms();
@@ -200,13 +216,58 @@ function spawnMonsters(room) {
   const n = Math.max(2, actives.length);
   room.monsters = [];
   for (let i = 0; i < n; i++) {
-    const x = Math.min(WORLD_W - 100, 900 + i * 130 + Math.random() * 40);
-    room.monsters.push({ id: 'm' + i, kind: 'minion', x, y: 0, hp: 300, maxHp: 300, dmg: 60, speed: 30, range: 45, r: 12, alive: true });
+    const x = Math.min(WORLD_W - 100, 1100 + i * 150 + Math.random() * 40);
+    room.monsters.push({ id: 'm' + i, kind: 'minion', x, y: 0, hp: 450, maxHp: 450, dmg: 60, speed: 30, range: 45, r: 15.6, alive: true });
   }
-  const bx = Math.min(WORLD_W - 100, 940 + n * 130);
-  room.monsters.push({ id: 'boss', kind: 'boss', x: bx, y: 0, hp: 1500, maxHp: 1500, dmg: 130, speed: 18, range: 60, r: 22, alive: true });
+  const bx = Math.min(WORLD_W - 100, 1160 + n * 150);
+  room.monsters.push({ id: 'boss', kind: 'boss', x: bx, y: 0, hp: 1800, maxHp: 1800, dmg: 130, speed: 18, range: 60, r: 28.6, alive: true, spawnCount: 0 });
   for (const m of room.monsters) m.y = groundY(room.terrain, m.x); // 出生在地面（平台由重力系统按需承接）
   broadcast(room, 'monsters', { monsters: room.monsters });
+}
+
+/** Boss行动：发射一枚“小兵炮弹”（32tick权威抛射，无弹坑，落地生成小兵） */
+function bossSpawnShot(room, boss) {
+  if (room.monsters.length >= 10) return; // 场上小兵上限
+  const seq = ++room.spawnSeq;
+  const id = 'sp' + seq;
+  let dirx = Math.random() < 0.5 ? -1 : 1;
+  let bd = Infinity;
+  for (const p of room.players) {
+    if (p.spectator || !p.alive) continue;
+    const d = Math.abs(p.x - boss.x);
+    if (d < bd) { bd = d; dirx = Math.sign(p.x - boss.x) || 1; }
+  }
+  const speed = 3.2 + Math.random() * 1.4; // 低速：射程很近
+  const ang = (40 + Math.random() * 20) * Math.PI / 180;
+  const shot = {
+    x: boss.x, y: boss.y - boss.r,
+    vx: Math.cos(ang) * speed * dirx,
+    vy: -Math.sin(ang) * speed,
+  };
+  broadcast(room, 'minionShotBegin', { id, x: +shot.x.toFixed(1), y: +shot.y.toFixed(1), vx: +shot.vx.toFixed(2), vy: +shot.vy.toFixed(2) });
+  room.bossShot = { id, shot };
+  room.bossShotTimer = setInterval(() => {
+    const bs = room.bossShot;
+    if (!bs) { clearInterval(room.bossShotTimer); room.bossShotTimer = null; return; }
+    const s = bs.shot;
+    s.x += s.vx * 0.7; s.y += s.vy * 0.7; s.vy += GRAVITY * 0.7; s.x += room.wind * 0.012;
+    s.step = (s.step || 0) + 1;
+    const landed = (s.step > 6 && solidIn(room.mask, Math.round(s.x), Math.round(s.y))) || s.y > WORLD_H || s.step > 600;
+    if (landed) {
+      // 落地：先广播一帧“冻结”的最终位置（速度清零），客户端小球即刻停在落点，不再滑行
+      const gy = groundBelow(room.mask, s.x, s.y - 8);
+      broadcast(room, 'minionShotTick', { id, x: +s.x.toFixed(1), y: +gy.toFixed(1), vx: 0, vy: 0, done: true });
+      clearInterval(room.bossShotTimer);
+      room.bossShotTimer = null;
+      room.bossShot = null;
+      const minion = { id, kind: 'minion', x: Math.round(s.x), y: gy, hp: 200, maxHp: 200, dmg: 40, speed: 30, range: 45, r: 10, alive: true };
+      room.monsters.push(minion);
+      broadcast(room, 'minionShotEnd', { id, minion });
+      broadcast(room, 'monsters', { monsters: room.monsters });
+      return;
+    }
+    broadcast(room, 'minionShotTick', { id, x: +s.x.toFixed(1), y: +s.y.toFixed(1), vx: +s.vx.toFixed(2), vy: +s.vy.toFixed(2) });
+  }, 1000 / 32);
 }
 
 /** 重力系统：脚下没有实心地形时加速下落直到触地（32tick，与炮弹相同的重力加速度） */
@@ -265,6 +326,11 @@ function monsterActOne(room, m) {
     broadcast(room, 'msg', { sys: true, text: `⏭️ ${m.kind === 'boss' ? '👹Boss' : '👾小兵'} 被跳过行动！` });
     broadcastState(room);
     return;
+  }
+  // Boss每2次行动：发射一枚“小兵炮弹”（32tick抛射，落地生成小兵），本次不再攻击/移动
+  if (m.kind === 'boss') {
+    m.spawnCount = (m.spawnCount || 0) + 1;
+    if (m.spawnCount % 2 === 0) { bossSpawnShot(room, m); return; }
   }
   const targets = room.players.filter(p => !p.spectator && p.alive);
   if (!targets.length) return;
@@ -388,6 +454,7 @@ function addPlayerToRoom(room, sid, name, forceSpectator) {
     shield: 0, berserk: 0, revenge: false, fortress: 0, poison: 0, skip: 0, // 增减益
     points: 0,                            // 积分（每回合+100）
     extraShots: 0, critBonus: 0, dmgPct: 0, flatDmg: 0, // 积分强化
+    lifesteal: 0, pierceEdge: false, doubleBoom: false,   // 积分强化（机制型）
   };
   if (!spectator) {
     if (room.mode === 'pve') {
@@ -597,6 +664,7 @@ function startTurn(room) {
   io.to(p.sid).emit('hand', { cards: p.hand });
   // 强化只生效一回合：回合开始时清空上一回合购买的强化
   p.extraShots = 0; p.critBonus = 0; p.dmgPct = 0; p.flatDmg = 0;
+  p.lifesteal = 0; p.pierceEdge = false; p.doubleBoom = false;
   p.points += 100; // 每回合开始获得100积分
   room.wind = +(Math.random() * 10 - 5).toFixed(1);
   room.timeLeft = TURN_TIME;
@@ -630,6 +698,7 @@ function endGame(room, winner, names) {
   room.state = 'over';
   clearInterval(room.timer);
   clearInterval(room.shotTimer);
+  clearInterval(room.bossShotTimer);
   broadcast(room, 'gameover', { winner, names });
   broadcastRoom(room);
 }
@@ -663,10 +732,18 @@ function fire(room, shooter) {
   const rad = (shooter.angle * Math.PI) / 180;
   const speed = shooter.power * 0.1425; // 满力速度降低25%，弹道更易观察
   const dir = shooter.dir || 1;
-  const bx = shooter.x + Math.cos(rad) * 22 * dir;
-  const by = shooter.y - Math.sin(rad) * 22 - 6;
-  const vx0 = Math.cos(rad) * speed * dir;
-  const vy0 = -Math.sin(rad) * speed;
+  // 发射方向 = 世界仰角φ（φ = 坡度倾角tilt + 局部瞄准角，钳制到 [-30, 90]），与客户端换算一致
+  const xa = Math.max(0, Math.min(WORLD_W - 1, Math.round(shooter.x - 14)));
+  const xb = Math.max(0, Math.min(WORLD_W - 1, Math.round(shooter.x + 14)));
+  let ya = groundBelow(room.mask, xa, shooter.y - 8), yb = groundBelow(room.mask, xb, shooter.y - 8);
+  let tilt = (ya >= WORLD_H || yb >= WORLD_H) ? 0 : Math.atan2(ya - yb, xb - xa) * 180 / Math.PI;
+  tilt *= dir; // 面朝上坡为正
+  const phi = tilt + shooter.angle; // 最终世界仰角 = 坡度 + 局部瞄准角，无额外限制
+  const phiRad = phi * Math.PI / 180;
+  const bx = shooter.x + Math.cos(phiRad) * 22 * dir;
+  const by = shooter.y - Math.sin(phiRad) * 22;
+  const vx0 = Math.cos(phiRad) * speed * dir;
+  const vy0 = -Math.sin(phiRad) * speed;
 
   broadcast(room, 'msg', { sys: true, text: `${shooter.name} 发射！(角度${shooter.angle} 力度${shooter.power})` });
 
@@ -704,55 +781,61 @@ function fire(room, shooter) {
   const TICK_MS = 1000 / 32;
   const STEPS_PER_TICK = 3;
   const explosions = [], dmg = [], mDmg = [], terrainRuns = [];
-  let crit = false;
+  let crit = false, lsGain = 0, boomDone = false, pendingBoom = null;
 
-  /** 单发命中结算：挖弹坑、结算伤害 */
-  const impact = (s) => {
-    s.done = true;
-    const ex = s.x, ey = s.y;
-    explosions.push({ x: +ex.toFixed(1), y: +ey.toFixed(1), r: expR });
-    const runs = carveMask(room.mask, ex, ey, expR);
+  /** 一次爆炸结算（挖弹坑+伤害）：主爆炸与二次爆破共用，返回实际伤害总和 */
+  const explodeAt = (ex, ey, R, dmgRatio, tag = '') => {
+    const runList = [];
+    const runs = carveMask(room.mask, ex, ey, R);
     terrainRuns.push(...runs);
+    runList.push(...runs);
     for (const r of runs) {
       const ts = topSolid(room.mask, r.x);
       if (ts > room.terrain[r.x]) room.terrain[r.x] = ts;
     }
-    // two(1)基础15%暴击，强化B可叠加；本次爆炸伤害+50%
+    let sum = 0;
+    const dmgList = [], mDmgList = [];
     const isCrit = Math.random() < ((ch === 1 ? 0.15 : 0) + (shooter.critBonus || 0));
     if (isCrit) crit = true;
-    const mult = isCrit ? 1.5 : 1;
+    const mult = (isCrit ? 1.5 : 1) * dmgRatio;
+    // 精准(i)：不受距离衰减
+    const falloff = (dist) => shooter.pierceEdge ? 1 : Math.max(0, 1 - 0.5 * dist / R);
     for (const p of room.players) {
       if (p.spectator || !p.alive) continue;
-      const dx = p.x - ex, dy = (p.y - 10) - ey;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < expR + TANK_R) {
-        const ratio = Math.max(0, 1 - 0.5 * Math.max(0, dist - TANK_R) / expR); // 线性衰减，边缘仍保留50%
-        let d = Math.round(MAX_DMG * ratio * baseMult);
-        if (shooter.berserk > 0) d += 80;
-        if (shooter.revenge) d += 100;
-        d += shooter.flatDmg || 0;                                    // 强化D：固定加伤
-        d = Math.round(d * (1 + (shooter.dmgPct || 0)) * mult * s.factor); // 强化C/S百分比加成、暴击、追加弹50%
-        if (d > 0) {
-          const real = dealDamage(room, p, d, `${shooter.name} 的炮击`);
-          if (real > 0) dmg.push({ slot: room.players.indexOf(p), damage: real, hp: p.hp, alive: p.alive });
-        }
-      }
-    }
-    // 爆炸波及怪物（PVE）
-    for (const m of room.monsters || []) {
-      if (!m.alive) continue;
-      const dx = m.x - ex, dy = (m.y - m.r) - ey;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < expR) {
-        const ratio = Math.max(0, 1 - 0.5 * dist / expR); // 线性衰减，边缘仍保留50%
-        let d = Math.round(MAX_DMG * 0.8 * ratio * baseMult);
+      const ccP = colCenter(room, p.x, p.y, 26);
+      const dist = Math.max(0, Math.hypot(p.x - ex, ccP.cy - ey) - TANK_R);
+      if (dist < R) {
+        let d = Math.round(MAX_DMG * falloff(dist) * baseMult);
         if (shooter.berserk > 0) d += 80;
         if (shooter.revenge) d += 100;
         d += shooter.flatDmg || 0;
-        d = Math.round(d * (1 + (shooter.dmgPct || 0)) * mult * s.factor);
+        d = Math.round(d * (1 + (shooter.dmgPct || 0)) * mult);
+        if (d > 0) {
+          const real = dealDamage(room, p, d, `${shooter.name} 的炮击`);
+          if (real > 0) {
+            broadcast(room, 'msg', { sys: true, text: `🎯 ${p.name} 受到 ${real} 点爆炸伤害（爆炸点 x=${Math.round(ex)}，你位于 x=${Math.round(p.x)}, y=${Math.round(p.y)}）` });
+            const e = { slot: room.players.indexOf(p), damage: real, hp: p.hp, alive: p.alive, crit: isCrit, tag }; dmg.push(e); dmgList.push(e); sum += real;
+          }
+        }
+      }
+    }
+    for (const m of room.monsters || []) {
+      if (!m.alive) continue;
+      const mcc = colCenter(room, m.x, m.y, m.r * 1.3);
+      const dist = Math.hypot(m.x - ex, mcc.cy - ey);
+      if (dist < R) {
+        // 小兵不再有额外减伤；Boss保留0.8系数（更耐打）
+        const tankMult = m.kind === 'boss' ? 0.8 : 1.0;
+        let d = Math.round(MAX_DMG * tankMult * falloff(dist) * baseMult);
+        if (shooter.berserk > 0) d += 80;
+        if (shooter.revenge) d += 100;
+        d += shooter.flatDmg || 0;
+        d = Math.round(d * (1 + (shooter.dmgPct || 0)) * mult);
         if (d > 0) {
           m.hp = Math.max(0, m.hp - d);
-          mDmg.push({ id: m.id, x: Math.round(m.x), y: Math.round(m.y - m.r * 2.6), damage: d });
+          const me2 = { id: m.id, x: Math.round(m.x), y: Math.round(m.y - m.r * 2.6) + (tag === 'boom2' ? 18 : 0), damage: d, crit: isCrit, tag };
+          mDmg.push(me2); mDmgList.push(me2);
+          sum += d;
           if (m.hp <= 0) {
             m.alive = false;
             broadcast(room, 'msg', { sys: true, text: `💥 ${m.kind === 'boss' ? '👹Boss' : '👾小兵'} 被消灭了！` });
@@ -760,32 +843,53 @@ function fire(room, shooter) {
         }
       }
     }
-    // 每发结算后消耗狂暴与复仇
     if (shooter.berserk > 0) shooter.berserk--;
     if (shooter.revenge) shooter.revenge = false;
+    return { sum, crit: isCrit, dmg: dmgList, mDmg: mDmgList, runs: runList };
   };
 
-  /** 追踪（four）：一定范围内的最近敌人，炮弹速度方向逐渐吸附过去 */
+  /** 单发命中结算：挖弹坑、结算伤害 */
+  const impact = (s) => {
+    s.done = true;
+    const ex = s.x, ey = s.y;
+    const res = explodeAt(ex, ey, expR, 1);
+    lsGain += res.sum;
+    explosions.push({ x: +ex.toFixed(1), y: +ey.toFixed(1), r: expR, tag: '' });
+    broadcast(room, 'boomFx', {
+      x: +ex.toFixed(1), y: +ey.toFixed(1), r: expR, char: ch, crit: res.crit,
+      dmg: res.dmg, mDmg: res.mDmg, runs: res.runs,
+    });
+    // 二次爆破(f)：24 tick后引爆，中心沿弹道方向前移40px（覆盖主爆炸之外的纵深带）
+    if (shooter.doubleBoom && !boomDone) {
+      boomDone = true;
+      const vl = Math.hypot(s.vx, s.vy) || 1;
+      pendingBoom = { x: ex + (s.vx / vl) * 40, y: ey + (s.vy / vl) * 40, ticks: 24 };
+    }
+  };
+
+  /** 追踪（four/疾风）：一定范围内的最近敌人，炮弹速度方向逐渐吸附过去 */
   const steerHoming = (s) => {
     let tx = null, ty = null, bd = HOMING_R;
     if (room.mode === 'pve') {
       for (const m of room.monsters || []) {
         if (!m.alive) continue;
-        const d = Math.hypot(m.x - s.x, (m.y - m.r) - s.y);
-        if (d < bd) { bd = d; tx = m.x; ty = m.y - m.r; }
+        const cc = colCenter(room, m.x, m.y, m.r * 1.3);
+        const d = Math.hypot(cc.cx - s.x, cc.cy - s.y);
+        if (d < bd) { bd = d; tx = cc.cx; ty = cc.cy; }
       }
     } else {
       for (const p of room.players) {
         if (p.spectator || !p.alive || p === shooter || p.team === shooter.team) continue;
-        const d = Math.hypot(p.x - s.x, (p.y - 10) - s.y);
-        if (d < bd) { bd = d; tx = p.x; ty = p.y - 10; }
+        const cc = colCenter(room, p.x, p.y, 26);
+        const d = Math.hypot(cc.cx - s.x, cc.cy - s.y);
+        if (d < bd) { bd = d; tx = cc.cx; ty = cc.cy; }
       }
     }
     if (tx !== null) {
       const dx = tx - s.x, dy = ty - s.y;
       const dl = Math.hypot(dx, dy) || 1;
       const sp = Math.hypot(s.vx, s.vy) || 1;
-      const k = 0.15 * timeScale; // 吸附强度（随子弹时间同步缩放，保证每段路程的吸附量一致）
+      const k = 0.15 * timeScale; // 吸附强度（随子弹时间同步缩放）
       s.vx += (dx / dl * sp - s.vx) * k;
       s.vy += (dy / dl * sp - s.vy) * k;
     }
@@ -794,6 +898,14 @@ function fire(room, shooter) {
   const endShot = () => {
     clearInterval(room.shotTimer);
     room.shotTimer = null;
+    // 汲血(g)：本次炮击总伤害的30%转化为生命
+    if (shooter.alive && shooter.lifesteal > 0 && lsGain > 0) {
+      const heal = Math.min(MAX_HP - shooter.hp, Math.round(lsGain * shooter.lifesteal));
+      if (heal > 0) {
+        shooter.hp += heal;
+        broadcast(room, 'msg', { sys: true, text: `🩸 ${shooter.name} 汲血恢复 ${heal} 生命（${shooter.hp}）` });
+      }
+    }
     broadcast(room, 'shotEnd', {
       explosions,
       terrainRuns,
@@ -831,6 +943,10 @@ function fire(room, shooter) {
   };
 
   room.shotTimer = setInterval(() => {
+    // 每tick预算一次所有实体的旋转碰撞圆心
+    const pcc = new Map(), mcc = new Map();
+    for (const p of room.players) if (!p.spectator && p.alive) pcc.set(p, colCenter(room, p.x, p.y, 26));
+    for (const m of room.monsters || []) if (m.alive) mcc.set(m, colCenter(room, m.x, m.y, m.r * 1.3));
     for (const s of shots) {
       if (s.done) continue;
       for (let i = 0; i < STEPS_PER_TICK && !s.done; i++) {
@@ -844,7 +960,8 @@ function fire(room, shooter) {
         // 命中玩家
         for (const p of room.players) {
           if (p.spectator || !p.alive) continue;
-          const dx = s.x - p.x, dy = s.y - (p.y - 10);
+          const ccP = pcc.get(p);
+          const dx = s.x - ccP.cx, dy = s.y - ccP.cy;
           if (dx * dx + dy * dy < (TANK_R + 6) * (TANK_R + 6) && p !== shooter) {
             impact(s); break;
           }
@@ -854,7 +971,8 @@ function fire(room, shooter) {
         if (s.step > 12) {
           for (const p of room.players) {
             if (p.spectator || !p.alive || p !== shooter) continue;
-            const dx = s.x - p.x, dy = s.y - (p.y - 10);
+            const ccP = pcc.get(p);
+            const dx = s.x - ccP.cx, dy = s.y - ccP.cy;
             if (dx * dx + dy * dy < (TANK_R + 4) * (TANK_R + 4)) { impact(s); break; }
           }
           if (s.done) break;
@@ -862,7 +980,8 @@ function fire(room, shooter) {
         // 命中怪物（PVE）
         for (const m of room.monsters || []) {
           if (!m.alive) continue;
-          const dx = s.x - m.x, dy = s.y - (m.y - m.r);
+          const ccM = mcc.get(m);
+          const dx = s.x - ccM.cx, dy = s.y - ccM.cy;
           if (dx * dx + dy * dy < (m.r + 8) * (m.r + 8)) { impact(s); break; }
         }
         if (s.done) break;
@@ -883,9 +1002,21 @@ function fire(room, shooter) {
         }
       }
     }
-    if (shots.every(s => s.done)) { endShot(); return; }
+    // 二次爆破倒计时（tick计量）
+    if (pendingBoom && --pendingBoom.ticks <= 0) {
+      const res = explodeAt(pendingBoom.x, pendingBoom.y, 40, 0.4, 'boom2');
+      lsGain += res.sum;
+      explosions.push({ x: +pendingBoom.x.toFixed(1), y: +pendingBoom.y.toFixed(1), r: 40, tag: 'boom2' });
+      broadcast(room, 'boomFx', {
+        x: +pendingBoom.x.toFixed(1), y: +pendingBoom.y.toFixed(1), r: 40, char: ch, crit: res.crit,
+        dmg: res.dmg, mDmg: res.mDmg, runs: res.runs,
+      });
+      broadcast(room, 'msg', { sys: true, text: `💥 二次爆破！` });
+      pendingBoom = null;
+    }
+    if (shots.every(s => s.done) && !pendingBoom) { endShot(); return; }
     broadcast(room, 'shotTick', {
-      pts: shots.map(s => ({ x: +s.x.toFixed(1), y: +s.y.toFixed(1), vx: +s.vx.toFixed(2), vy: +s.vy.toFixed(2) })),
+      pts: shots.map(s => ({ x: +s.x.toFixed(1), y: +s.y.toFixed(1), vx: s.done ? 0 : +s.vx.toFixed(2), vy: s.done ? 0 : +s.vy.toFixed(2), done: s.done })),
     });
   }, TICK_MS);
 }
@@ -1013,16 +1144,24 @@ io.on('connection', (socket) => {
           room.state = 'waiting';
           clearInterval(room.timer);
           clearInterval(room.shotTimer);
+          clearInterval(room.bossShotTimer);
           clearInterval(room.gravityTimer);
           broadcast(room, 'msg', { sys: true, text: '人数不足，回到等待中…' });
         }
       } else {
-        // PVP：双方都还有人就继续打，否则回到等待
+        // PVP：一方全部退出 → 剩余方直接获胜（退出者判负）；否则回到等待
         const aliveTeams = [0, 1].filter(t => active.some(x => x.team === t));
-        if (active.length < 2 || aliveTeams.length < 2) {
+        if (active.length >= 1 && aliveTeams.length === 1) {
+          const winTeam = aliveTeams[0];
+          const winName = winTeam === 0 ? '红队' : '蓝队';
+          const winners = active.filter(x => x.team === winTeam && x.alive).map(x => x.name);
+          broadcast(room, 'msg', { sys: true, text: `🏃 对手退出对战，${winName} 直接获胜！` });
+          endGame(room, winName, winners);
+        } else if (active.length < 2 || aliveTeams.length < 2) {
           room.state = 'waiting';
           clearInterval(room.timer);
           clearInterval(room.shotTimer);
+          clearInterval(room.bossShotTimer);
           clearInterval(room.gravityTimer);
           broadcast(room, 'msg', { sys: true, text: '人数不足，回到等待中…' });
         }
@@ -1034,6 +1173,7 @@ io.on('connection', (socket) => {
     if (room.players.length === 0) {
       clearInterval(room.timer);
       clearInterval(room.shotTimer);
+      clearInterval(room.bossShotTimer);
       clearInterval(room.gravityTimer);
       rooms.delete(room.id);
       const qi = waitingQueue.indexOf(room.id);
@@ -1048,9 +1188,7 @@ io.on('connection', (socket) => {
 
   socket.on('aim', ({ angle, power, dir }) => {
     if (!curRoom || !me || curRoom.state !== 'playing') return;
-    const active = curRoom.players.filter(p => !p.spectator);
-    if (active[curRoom.turn] !== me) return;
-    me.angle = Math.max(10, Math.min(90, Math.round(+angle || 45)));
+    me.angle = Math.max(-30, Math.min(90, Math.round(+angle || 45))); // 世界仰角
     me.power = Math.max(40, Math.min(MAX_POWER, Math.round(+power || 40)));
     if (dir === 1 || dir === -1) {
       const changed = me.dir !== dir;
@@ -1108,6 +1246,8 @@ io.on('connection', (socket) => {
     const u = UPGRADES[String(id)];
     if (!u) return;
     if (me.points < u.cost) { socket.emit('err', '积分不足'); return; }
+    // 强化F是布尔型增益，本回合已购买则不可重复购买
+    if (String(id) === 'f' && me.pierceEdge) { socket.emit('err', '强化F已生效，不能重复购买'); return; }
     me.points -= u.cost;
     switch (String(id)) {
       case 'a': me.extraShots++; break;
@@ -1115,6 +1255,9 @@ io.on('connection', (socket) => {
       case 'c': me.dmgPct += 0.3; break;
       case 'd': me.flatDmg += 20; break;
       case 's': me.dmgPct += 1.0; break;
+      case 'e': me.lifesteal = (me.lifesteal || 0) + 0.3; break;
+      case 'f': me.pierceEdge = true; break;
+      case 'g': me.doubleBoom = true; break;
     }
     broadcast(room, 'msg', { sys: true, text: `🛒 ${me.name} 购买了 ${u.name}（-${u.cost} 积分）` });
     broadcastState(room);
@@ -1138,6 +1281,8 @@ io.on('connection', (socket) => {
       p.hp = MAX_HP; p.alive = true; p.angle = 45; p.power = 40; p.moveBudget = MOVE_BUDGET; p.fired = false;
       p.hand = []; p.cardPlayed = false; p.shield = 0; p.berserk = 0; p.revenge = false; p.fortress = 0; p.poison = 0; p.skip = 0;
       p.points = 0; p.extraShots = 0; p.critBonus = 0; p.dmgPct = 0; p.flatDmg = 0;
+      room.spawnSeq = 0; room.spawnCount = 0;
+      p.lifesteal = 0; p.pierceEdge = false; p.doubleBoom = false;
     }
     const active = room.players.filter(p => !p.spectator);
     const idxInTeam = [0, 0];
