@@ -886,27 +886,54 @@ socket.on('timer', (s) => {
   if (s <= 5 && s > 0) SFX.play('tick');
 });
 
+/* ---------- 结局视频：胜负后先播动画，再显示结算界面 ---------- */
+function playEndingVideo(src, onDone) {
+  const wrap = $('endingVideo');
+  if (!wrap) { onDone(); return; } // 兜底：元素缺失时直接进入结算
+  const v = wrap.querySelector('video');
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    wrap.classList.add('hidden');
+    v.pause(); v.removeAttribute('src'); v.load();
+    onDone();
+  };
+  wrap.onclick = finish;        // 点击任意处可跳过动画
+  v.onended = finish;
+  v.onerror = finish;
+  v.src = src;
+  wrap.classList.remove('hidden');
+  const p = v.play();
+  if (p && p.catch) p.catch(() => { v.muted = true; v.play().catch(finish); }); // 自动播放被拦截时静音重试
+  setTimeout(finish, 45000);    // 安全兜底：异常时最多等待45秒
+}
+
 socket.on('gameover', ({ winner }) => {
   SFX.setBgm('lobby');
   lastFiredAngle = null; // 新对局恢复默认45°
   // 我方胜利奏凯歌，失败奏哀乐
   const myTeam = me ? me.team : 0;
   const iWon = winner === '玩家队' || winner === '红队' && myTeam === 0 || winner === '蓝队' && myTeam === 1;
-  SFX.play(iWon ? 'win' : 'lose');
-  showOverlay(`🏆 ${winner || '无人'} 获胜！`);
-  if (isHost && !isSpectator) {
-    const btn = document.createElement('button');
-    btn.className = 'btn primary big';
-    btn.textContent = t('rematch');
-    btn.onclick = () => { hideOverlay(); socket.emit('rematch'); };
-    $('overlay').appendChild(btn);
-  } else {
-    const tip = document.createElement('div');
-    tip.style.fontSize = '16px';
-    tip.style.color = '#cdd8ee';
-    tip.textContent = isSpectator ? '等待房主开始新一局…' : '等待房主开始新一局…';
-    $('overlay').appendChild(tip);
-  }
+  const showResult = () => {
+    SFX.play(iWon ? 'win' : 'lose');
+    showOverlay(`🏆 ${winner || '无人'} 获胜！`);
+    if (isHost && !isSpectator) {
+      const btn = document.createElement('button');
+      btn.className = 'btn primary big';
+      btn.textContent = t('rematch');
+      btn.onclick = () => { hideOverlay(); socket.emit('rematch'); };
+      $('overlay').appendChild(btn);
+    } else {
+      const tip = document.createElement('div');
+      tip.style.fontSize = '16px';
+      tip.style.color = '#cdd8ee';
+      tip.textContent = isSpectator ? '等待房主开始新一局…' : '等待房主开始新一局…';
+      $('overlay').appendChild(tip);
+    }
+  };
+  // 胜利播放 Win Sequence，失败播放 defeat sequence，播完后显示胜/负结算
+  playEndingVideo(iWon ? 'video/win_sequence.mp4' : 'video/defeat_sequence.mp4', showResult);
 });
 
 socket.on('msg', (m) => {
