@@ -41,14 +41,13 @@ function randomName() {
 /** 卡牌定义：每回合发3张，每回合限打1张（不消耗开火机会） */
 const CARDS = {
   heal:      { id: 'heal',      emoji: '💚', name: 'Healing',       desc: '恢复200点生命' },
-  shield:    { id: 'shield',    emoji: '🛡️', name: 'Mini Shield',   desc: '获得护盾，格挡150点伤害' },
-  double:    { id: 'double',    emoji: '💥', name: 'Double Trouble',desc: '对最近的敌人造成200伤害' },
+  shield:    { id: 'shield',    emoji: '🛡️', name: 'Mini Shield',   desc: '获得护盾，格挡150点伤害（周身淡蓝护盾特效）' },
+  double:    { id: 'double',    emoji: '💥', name: 'Double Trouble',desc: '炮弹额外造成200点真实伤害（不受任何加成影响）' },
   revenge:   { id: 'revenge',   emoji: '🎯', name: 'Revenge',       desc: '下一次炮击伤害+100' },
-  skip:      { id: 'skip',      emoji: '⏭️', name: 'Skip Turn',     desc: '敌人下个回合无法攻击' },
-  poison:    { id: 'poison',    emoji: '☠️', name: 'Poison',        desc: '100伤害，之后每回合50，共2回合' },
-  bloodpact: { id: 'bloodpact', emoji: '🏹', name: 'Blood Pact',    desc: '300伤害，但自损200生命' },
+  poison:    { id: 'poison',    emoji: '☠️', name: 'Poison',        desc: '炮弹命中的目标受100点毒伤，之后每回合50点毒伤，共2回合' },
+  bloodpact: { id: 'bloodpact', emoji: '🏹', name: 'Blood Pact',    desc: '炮弹额外造成400点真实伤害；消耗200生命（最低保留1点）；仅能使用一次' },
   berserk:   { id: 'berserk',   emoji: '🔥', name: 'Berserk',       desc: '3回合内炮击伤害+80' },
-  fortress:  { id: 'fortress',  emoji: '🏰', name: 'Fortress',      desc: '1回合内受到伤害降低80%' },
+  fortress:  { id: 'fortress',  emoji: '🏰', name: 'Fortress',      desc: '3回合内受到的伤害降低25%' },
 };
 /** 积分强化定义 */
 const UPGRADES = {
@@ -61,8 +60,9 @@ const UPGRADES = {
   f: { id: 'f', name: '强化F', cost: 30,  desc: '精准：不受距离衰减，边缘保持满伤害' },
   g: { id: 'g', name: '强化G', cost: 80,  desc: '二次爆破：命中点引发二次爆炸(半径40,40%伤害)' },
 };
-function drawCards() {
-  const ids = Object.keys(CARDS);
+function drawCards(p) {
+  // 血契一次性卡：该玩家用过一次后不再出现在手牌中
+  const ids = Object.keys(CARDS).filter(id => !(id === 'bloodpact' && p && p.bloodUsed));
   const hand = [];
   while (hand.length < 3) {
     const c = ids[Math.floor(Math.random() * ids.length)];
@@ -379,8 +379,9 @@ function monsterActOne(room, m) {
   // 怪物的"回合"开始：中毒掉血 / 被跳过
   if (m.poison > 0) {
     m.poison--;
-    dealDamage(room, m, 50, '☠️ 中毒');
-    broadcast(room, 'msg', { sys: true, text: `☠️ 中毒：${m.kind === 'boss' ? '👹Boss' : '👾小兵'} 损失 50 生命` });
+    const real = dealDamage(room, m, 50, '☠️ 中毒');
+    broadcast(room, 'poisonDmg', { monId: m.id, damage: real, hp: m.hp, alive: m.alive });
+    broadcast(room, 'msg', { sys: true, text: `☠️ 中毒：${m.kind === 'boss' ? '👹Boss' : '👾小兵'} 损失 ${real} 生命` });
     if (!m.alive) { broadcastState(room); checkCardEnd(room); return; }
   }
   if (m.skip > 0) {
@@ -579,6 +580,7 @@ function addPlayerToRoom(room, sid, name, forceSpectator) {
     char: Math.floor(Math.random() * 4), // 角色形象（0~3），房间内可改
     hand: [], cardPlayed: false,          // 卡牌
     shield: 0, berserk: 0, revenge: false, fortress: 0, poison: 0, skip: 0, // 增减益
+    trueDmg: 0, hitPoison: false, bloodUsed: false, // 卡牌：炮弹附加真实伤害/命中涂毒/血契一次性
     points: 0,                            // 积分（每回合+100）
     extraShots: 0, critBonus: 0, dmgPct: 0, flatDmg: 0, // 积分强化
     lifesteal: 0, pierceEdge: false, doubleBoom: false,   // 积分强化（机制型）
@@ -613,8 +615,8 @@ function dealDamage(room, target, amount, srcLabel) {
   if (!target.alive || amount <= 0) return 0;
   let dmg = amount;
   if (target.fortress > 0) {
-    dmg = Math.max(1, Math.round(dmg * 0.2));
-    broadcast(room, 'msg', { sys: true, text: `🏰 Fortress：${srcLabel || '伤害'}被减免为 ${dmg}` });
+    dmg = Math.max(1, Math.round(dmg * 0.75));
+    broadcast(room, 'msg', { sys: true, text: `🏰 Fortress：${srcLabel || '伤害'}被减免25% → ${dmg}` });
   }
   if (target.shield > 0 && dmg > 0) {
     const abs = Math.min(target.shield, dmg);
@@ -690,42 +692,30 @@ function applyCard(room, p, id) {
       broadcast(room, 'msg', { sys: true, text: `🛡️ ${p.name} 获得护盾（可格挡 ${p.shield} 伤害）` });
       break;
     case 'double':
-      if (enemy) {
-        dealDamage(room, enemy, 200, '💥 Double Trouble');
-        broadcast(room, 'msg', { sys: true, text: `💥 ${p.name} 对 ${ename} 造成 200 伤害！` });
-      }
+      p.trueDmg = (p.trueDmg || 0) + 200;
+      broadcast(room, 'msg', { sys: true, text: `💥 ${p.name} 的下一次炮击将额外造成 200 点真实伤害（不受任何加成影响）` });
       break;
     case 'revenge':
       p.revenge = true;
       broadcast(room, 'msg', { sys: true, text: `🎯 ${p.name} 的下一次炮击伤害 +100` });
       break;
-    case 'skip':
-      if (enemy) {
-        enemy.skip = (enemy.skip || 0) + 1;
-        broadcast(room, 'msg', { sys: true, text: `⏭️ ${ename} 的下个回合将无法攻击` });
-      }
-      break;
     case 'poison':
-      if (enemy) {
-        dealDamage(room, enemy, 100, '☠️ Poison');
-        if (enemy.alive !== false) enemy.poison = 2;
-        broadcast(room, 'msg', { sys: true, text: `☠️ ${ename} 中毒：100 伤害，之后每回合 50 共 2 回合` });
-      }
+      p.hitPoison = true;
+      broadcast(room, 'msg', { sys: true, text: `☠️ ${p.name} 的下一次炮弹命中将涂毒：目标 100 毒伤，之后每回合 50 共 2 回合` });
       break;
     case 'bloodpact':
-      if (enemy) {
-        dealDamage(room, enemy, 300, '🏹 Blood Pact');
-        broadcast(room, 'msg', { sys: true, text: `🏹 ${p.name} 对 ${ename} 造成 300 伤害，自损 200！` });
-      }
-      dealDamage(room, p, 200, '🏹 Blood Pact 反噬');
+      p.trueDmg = (p.trueDmg || 0) + 400;
+      p.bloodUsed = true; // 一次性卡：用后不再出现在手牌
+      p.hp = Math.max(1, p.hp - 200); // 生命不足时保留1点
+      broadcast(room, 'msg', { sys: true, text: `🏹 ${p.name} 签订血契：下一次炮击额外 400 真实伤害，消耗 200 生命（剩余 ${p.hp}）` });
       break;
     case 'berserk':
       p.berserk = 3;
       broadcast(room, 'msg', { sys: true, text: `🔥 ${p.name} 进入狂暴：3 回合内炮击伤害 +80` });
       break;
     case 'fortress':
-      p.fortress = 1;
-      broadcast(room, 'msg', { sys: true, text: `🏰 ${p.name} 进入堡垒状态：1 回合内受伤降低 80%` });
+      p.fortress = 3;
+      broadcast(room, 'msg', { sys: true, text: `🏰 ${p.name} 进入堡垒状态：3 回合内受到的伤害降低 25%` });
       break;
   }
 }
@@ -768,7 +758,9 @@ function startTurn(room) {
   // 回合开始结算：中毒（在自己回合掉血）与堡垒衰减
   if (p.poison > 0) {
     p.poison--;
-    dealDamage(room, p, 50, '☠️ 中毒');
+    const real = dealDamage(room, p, 50, '☠️ 中毒');
+    // 毒伤飘字（紫色，客户端错开炮弹伤害的位置显示）
+    broadcast(room, 'poisonDmg', { slot: room.players.indexOf(p), damage: real, hp: p.hp, alive: p.alive });
   }
   if (p.fortress > 0) p.fortress--;
   if (!p.alive) { // 中毒致死
@@ -787,7 +779,7 @@ function startTurn(room) {
 
   // 发3张卡牌（仅发给该玩家）
   p.cardPlayed = skipped; // 被跳过时本回合也不能出牌
-  p.hand = skipped ? [] : drawCards();
+  p.hand = skipped ? [] : drawCards(p);
   io.to(p.sid).emit('hand', { cards: p.hand });
   // 强化只生效一回合：回合开始时清空上一回合购买的强化
   p.extraShots = 0; p.critBonus = 0; p.dmgPct = 0; p.flatDmg = 0;
@@ -882,6 +874,40 @@ function fire(room, shooter) {
   const homing = ch === 2;
   // 基础伤害系数（平衡命中优势）：鹰眼必中减伤、疾风三连发每发减伤
   const baseMult = ch === 2 ? 0.75 : ch === 3 ? 0.45 : 1.0;
+  // 卡牌附加效果（Double/BloodPact真实伤害、Poison涂毒）：本volley内每个目标只结算一次
+  const onHitDone = new Set();
+  // 附加伤害飘字需进入当前爆炸的 boomFx 载荷（dmgList/mDmgList）；不在爆炸结算期间则回退到回合汇总
+  let curLists = null;
+  const applyOnHit = (target, isMonster) => {
+    const key = (isMonster ? 'm' + target.id : 'p' + target.sid);
+    if (onHitDone.has(key)) return;
+    onHitDone.add(key);
+    if (!target.alive && target.alive !== undefined) return;
+    if (shooter.trueDmg > 0) {
+      // 真实伤害：直接扣血，无视护盾/堡垒/暴击/强化等一切加成
+      target.hp = Math.max(0, target.hp - shooter.trueDmg);
+      const nm = isMonster ? (target.kind === 'boss' ? '👹Boss' : '👾小兵') : target.name;
+      broadcast(room, 'msg', { sys: true, text: `⚡ 真实伤害：${nm} 受到 ${shooter.trueDmg} 点无视减伤的伤害` });
+      if (isMonster) { const e = { id: target.id, x: Math.round(target.x), y: Math.round(target.y - target.r * 2.6), damage: shooter.trueDmg, crit: false, tag: 'true' }; mDmg.push(e); if (curLists) curLists.mDmgList.push(e); }
+      else { const e = { slot: room.players.indexOf(target), damage: shooter.trueDmg, hp: target.hp, alive: target.alive, crit: false, tag: 'true' }; dmg.push(e); if (curLists) curLists.dmgList.push(e); }
+      if (target.hp <= 0 && target.alive) {
+        target.alive = false;
+        broadcast(room, 'msg', { sys: true, text: `💀 ${nm} 阵亡了` });
+      }
+    }
+    if (shooter.hitPoison && target.hp > 0) {
+      target.hp = Math.max(0, target.hp - 100);
+      target.poison = 2; // 之后每回合50，共2回合
+      const nm = isMonster ? (target.kind === 'boss' ? '👹Boss' : '👾小兵') : target.name;
+      broadcast(room, 'msg', { sys: true, text: `☠️ ${nm} 中毒：100 毒伤，之后每回合 50 共 2 回合` });
+      if (isMonster) { const e = { id: target.id, x: Math.round(target.x), y: Math.round(target.y - target.r * 2.6), damage: 100, crit: false, tag: 'poison' }; mDmg.push(e); if (curLists) curLists.mDmgList.push(e); }
+      else { const e = { slot: room.players.indexOf(target), damage: 100, hp: target.hp, alive: target.alive, crit: false, tag: 'poison' }; dmg.push(e); if (curLists) curLists.dmgList.push(e); }
+      if (target.hp <= 0 && target.alive) {
+        target.alive = false;
+        broadcast(room, 'msg', { sys: true, text: `💀 ${nm} 阵亡了` });
+      }
+    }
+  };
   const HOMING_R = 150;
   const spread = ch === 3 ? [-0.14, 0, 0.14] : [0];
 
@@ -927,11 +953,14 @@ function fire(room, shooter) {
     const mult = (isCrit ? 1.5 : 1) * dmgRatio;
     // 精准(i)：不受距离衰减
     const falloff = (dist) => shooter.pierceEdge ? 1 : Math.max(0, 1 - 0.5 * dist / R);
+    curLists = { dmgList, mDmgList };
     for (const p of room.players) {
       if (p.spectator || !p.alive) continue;
       const ccP = colCenter(room, p.x, p.y, 26);
       const dist = Math.max(0, Math.hypot(p.x - ex, ccP.cy - ey) - TANK_R);
       if (dist < R) {
+        // 敌方目标被炮弹命中：结算卡牌附加（真实伤害/涂毒），队友与自己不触发
+        if (p !== shooter && (room.mode === 'pve' || p.team !== shooter.team)) applyOnHit(p, false);
         let d = Math.round(MAX_DMG * falloff(dist) * baseMult);
         if (shooter.berserk > 0) d += 80;
         if (shooter.revenge) d += 100;
@@ -949,8 +978,11 @@ function fire(room, shooter) {
     for (const m of room.monsters || []) {
       if (!m.alive) continue;
       const mcc = colCenter(room, m.x, m.y, m.r * 1.3);
-      const dist = Math.hypot(m.x - ex, mcc.cy - ey);
+      // 与玩家结算口径一致：减去怪物自身半径，否则炮弹擦到Boss边缘/在其脚边地形引爆时
+      // （爆炸点距中心55~90px）视觉上命中、判定上却是0伤害。Boss半径大，此问题最明显
+      const dist = Math.max(0, Math.hypot(m.x - ex, mcc.cy - ey) - m.r);
       if (dist < R) {
+        applyOnHit(m, true); // 怪物被炮弹命中：结算卡牌附加（真实伤害/涂毒）
         // 小兵不再有额外减伤；Boss保留0.8系数（更耐打）
         const tankMult = m.kind === 'boss' ? 0.8 : 1.0;
         let d = Math.round(MAX_DMG * tankMult * falloff(dist) * baseMult);
@@ -972,6 +1004,7 @@ function fire(room, shooter) {
     }
     if (shooter.berserk > 0) shooter.berserk--;
     if (shooter.revenge) shooter.revenge = false;
+    curLists = null;
     return { sum, crit: isCrit, dmg: dmgList, mDmg: mDmgList, runs: runList };
   };
 
@@ -994,24 +1027,30 @@ function fire(room, shooter) {
     }
   };
 
-  /** 追踪（four/疾风）：一定范围内的最近敌人，炮弹速度方向逐渐吸附过去 */
+  /** 追踪（four/疾风）：一定范围内优先选择飞行方向前方的最近敌人，避免被身后更近的怪把弹道拉回头 */
   const steerHoming = (s) => {
-    let tx = null, ty = null, bd = HOMING_R;
+    let tx = null, ty = null, bd = HOMING_R, fwdTx = null, fwdTy = null, fwdBd = HOMING_R;
+    const consider = (cx, cy) => {
+      const dx = cx - s.x, dy = cy - s.y;
+      const d = Math.hypot(dx, dy);
+      if (d >= bd) return;
+      bd = d; tx = cx; ty = cy;
+      if (dx * s.vx + dy * s.vy > 0 && d < fwdBd) { fwdBd = d; fwdTx = cx; fwdTy = cy; } // 前方（与速度同向）目标
+    };
     if (room.mode === 'pve') {
       for (const m of room.monsters || []) {
         if (!m.alive) continue;
         const cc = colCenter(room, m.x, m.y, m.r * 1.3);
-        const d = Math.hypot(cc.cx - s.x, cc.cy - s.y);
-        if (d < bd) { bd = d; tx = cc.cx; ty = cc.cy; }
+        consider(cc.cx, cc.cy);
       }
     } else {
       for (const p of room.players) {
         if (p.spectator || !p.alive || p === shooter || p.team === shooter.team) continue;
         const cc = colCenter(room, p.x, p.y, 26);
-        const d = Math.hypot(cc.cx - s.x, cc.cy - s.y);
-        if (d < bd) { bd = d; tx = cc.cx; ty = cc.cy; }
+        consider(cc.cx, cc.cy);
       }
     }
+    if (fwdTx !== null) { tx = fwdTx; ty = fwdTy; } // 有前方目标时优先，绝不往回拉
     if (tx !== null) {
       const dx = tx - s.x, dy = ty - s.y;
       const dl = Math.hypot(dx, dy) || 1;
@@ -1025,6 +1064,9 @@ function fire(room, shooter) {
   const endShot = () => {
     clearInterval(room.shotTimer);
     room.shotTimer = null;
+    // 卡牌附加效果随本次炮击结束而消耗（一次性）
+    shooter.trueDmg = 0;
+    shooter.hitPoison = false;
     // 汲血(g)：本次炮击总伤害的30%转化为生命
     if (shooter.alive && shooter.lifesteal > 0 && lsGain > 0) {
       const heal = Math.min(MAX_HP - shooter.hp, Math.round(lsGain * shooter.lifesteal));
@@ -1417,6 +1459,7 @@ io.on('connection', (socket) => {
     for (const p of room.players) {
       p.hp = MAX_HP; p.alive = true; p.angle = 45; p.power = 40; p.moveBudget = MOVE_BUDGET; p.fired = false;
       p.hand = []; p.cardPlayed = false; p.shield = 0; p.berserk = 0; p.revenge = false; p.fortress = 0; p.poison = 0; p.skip = 0;
+      p.trueDmg = 0; p.hitPoison = false;
       p.points = 0; p.extraShots = 0; p.critBonus = 0; p.dmgPct = 0; p.flatDmg = 0;
       room.spawnSeq = 0; room.spawnCount = 0;
       p.lifesteal = 0; p.pierceEdge = false; p.doubleBoom = false;
@@ -1442,6 +1485,11 @@ io.on('connection', (socket) => {
   // 延迟测量：客户端发带回调的探测包，收到即回执（socket.io ack）
   socket.on('lat:ping', (ack) => { if (typeof ack === 'function') ack(); });
 });
+
+// 测试专用导出：TEST_EXPORT=1 时可离线复现炮弹/伤害逻辑（不影响正常运行）
+if (process.env.TEST_EXPORT) {
+  module.exports = { createRoom, addPlayerToRoom, spawnMonsters, placeOnGround, groundY, fire, rooms };
+}
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {

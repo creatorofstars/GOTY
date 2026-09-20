@@ -23,7 +23,7 @@ let roomId = null;
 let isSpectator = false;
 let terrain = new Float32Array(W);
 let mapMode = 'random';                   // 当前地图：random | castle（决定贴图风格与背景）
-const castleBg = new Image(); castleBg.src = '/texture/castle_bg.png';
+const castleBg = new Image(); castleBg.src = '/texture/castleBackground.jpg';
 // 2D 可破坏地形：离屏画布（显示）+ 实心网格（本地碰撞预估，权威在服务器）
 const tcv = document.createElement('canvas');
 tcv.width = W; tcv.height = H;
@@ -1225,14 +1225,36 @@ socket.on('boomFx', (d) => {
   for (const dd of d.dmg || []) {
     const p = players.find(q => q.slot === dd.slot);
     if (p) {
-      if (dd.crit) addFloat(p.x, p.y - 64, '-' + dd.damage, '#ffd54a', 32);
+      if (dd.tag === 'poison') addFloat(p.x, p.y - 100, '-' + dd.damage, '#b388ff', 22); // 毒伤：紫色，位于炮弹伤害上方错开
+      else if (dd.tag === 'true') addFloat(p.x, p.y - 104, '-' + dd.damage, '#ffffff', 30); // 真实伤害：醒目白色，错开显示
+      else if (dd.crit) addFloat(p.x, p.y - 64, '-' + dd.damage, '#ffd54a', 32);
       else addFloat(p.x, p.y - 64, '-' + dd.damage);
     }
   }
   for (const md of d.mDmg || []) {
-    if (md.tag === 'boom2') addFloat(md.x, md.y - 20, '-' + md.damage, '#40c4ff');
+    if (md.tag === 'poison') addFloat(md.x, md.y - 56, '-' + md.damage, '#b388ff', 22); // 毒伤：紫色，位于炮弹伤害上方错开
+    else if (md.tag === 'true') addFloat(md.x, md.y - 60, '-' + md.damage, '#ffffff', 30); // 真实伤害：醒目白色，错开显示
+    else if (md.tag === 'boom2') addFloat(md.x, md.y - 20, '-' + md.damage, '#40c4ff');
     else if (md.crit) addFloat(md.x, md.y - 20, '-' + md.damage, '#ffd54a', 32);
     else addFloat(md.x, md.y - 20, '-' + md.damage, '#ff9100');
+  }
+});
+
+// 回合开始/怪物行动时的持续毒伤结算（紫色飘字 + 本地更新HP，无爆炸动画）
+socket.on('poisonDmg', (d) => {
+  if (d.slot !== undefined) {
+    const p = players.find(q => q.slot === d.slot);
+    if (p) {
+      if (d.damage > 0) addFloat(p.x, p.y - 100, '-' + d.damage, '#b388ff', 22);
+      if (d.hp !== undefined) { p.hp = d.hp; p.alive = d.alive; }
+      updateHUD();
+    }
+  } else if (d.monId !== undefined) {
+    const m = monsters.find(q => q.id === d.monId);
+    if (m) {
+      if (d.damage > 0) addFloat(m.rx ?? m.x, (m.ry ?? m.y) - m.r * 2.6 - 36, '-' + d.damage, '#b388ff', 22);
+      if (d.hp !== undefined) { m.hp = d.hp; m.alive = d.alive; }
+    }
   }
 });
 
@@ -1666,6 +1688,20 @@ function drawTank(p) {
     ctx.fillStyle = p.team === 0 ? '#e53935' : '#1e88e5';
     ctx.fillRect(-16, -20, 32, 14);
   }
+  // 护盾气泡：淡蓝色半透明罩住角色，随呼吸微微起伏
+  if (p.shield > 0) {
+    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 400);
+    ctx.save();
+    ctx.rotate(slope);
+    ctx.fillStyle = `rgba(100, 180, 255, ${0.10 + pulse * 0.06})`;
+    ctx.strokeStyle = `rgba(140, 210, 255, ${0.55 + pulse * 0.3})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(0, -27, 36 + pulse * 2, 42 + pulse * 2, 0, 0, 7);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
   ctx.restore(); // 结束坡度旋转：血条与名字始终保持水平
   // 名字与血条（圆角、水平）
   ctx.fillStyle = 'rgba(0,0,0,.6)';
@@ -1674,8 +1710,15 @@ function drawTank(p) {
     ctx.fillStyle = '#43d96a';
     rr(ctx, -30, -72, Math.max(6, 60 * (p.hp / 1000)), 7, 3.5); ctx.fill();
   }
+  // 护盾血条：位于头顶血条上方（有护盾时才显示），名字相应再上移
+  if (p.shield > 0) {
+    ctx.fillStyle = 'rgba(0,0,0,.6)';
+    rr(ctx, -30, -80, 60, 5, 2.5); ctx.fill();
+    ctx.fillStyle = '#8cd2ff';
+    rr(ctx, -30, -80, Math.max(4, Math.min(60, 60 * (p.shield / 150))), 5, 2.5); ctx.fill();
+  }
   ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText(p.name + (p.isYou ? t('you') : ''), 0, -79);
+  ctx.fillText(p.name + (p.isYou ? t('you') : ''), 0, p.shield > 0 ? -87 : -79);
   // 当前回合标记
   const activeIdx = players.filter(q => !q.spectator).indexOf(p);
   if (activeIdx === curTurnSlot && roomId) {

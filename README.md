@@ -1,97 +1,103 @@
-# GOTY — THE LAST STAR
+# 弹弹堂 Online 💣
 
-> **Genre:** Fantasy Adventure + Action + Light Comedy
+复刻《弹弹堂》核心玩法的 HTML5 多人在线回合制炮弹对战游戏。支持 PVP 团队对战与 PVE 打怪两种模式。
 
-> **One Star Fragment. Two warriors. One final battle to decide the true Guardian of the Star — the only one who can save the world.**
+## 玩法
 
-## 🌟 The Story
+- **PVP**：红蓝两队（每队最多 3 人）轮流开炮，将敌方全员 HP 打到 0 即获胜
+- **PVE**：玩家组队对抗怪物军团（小兵 + Boss），怪物全灭获胜；Boss 会朝玩家抛射"小兵炮弹"落地增援，靠近后近战攻击
+- **房主制度**：创建/第一个进入房间的玩家是房主（👑），由房主点击"开始游戏"；PVE 单人即可开局，PVP 至少 2 人；房主离开自动转移房主身份
+- 大厅房间列表每项有 **加入 / 观战** 两个按钮；游戏开始后只能观战；掉线后凭会话令牌**重连恢复**（30 秒宽限期，恢复完整局面）
+- `A`/`D` 左右移动（每回合 150px 移动预算），**按住** `W`/`S` 持续调整角度，越过 90° 会自动转身
+- **按住空格蓄力、松开发射**（力度由按住时长决定）
+- 每回合随机风力（顶部风力计），弹道受重力与风力影响
+- 炮弹爆炸会**摧毁地形**炸出弹坑，敌人可能掉进坑里；离爆心越近伤害越高
+- 支持房间内实时聊天、结束后"再来一局"；界面**中英双语**（i18n），可即时切换
 
-Long ago, the world was protected by the **Heart Star** — a magical source of energy that kept the world's magic alive.
+### 🧑‍🚀 四名角色（各带被动）
 
-Now, it's disappearing.
+| 角色 | 被动 |
+| --- | --- |
+| 轰侠 | 爆炸范围 +40% |
+| 影袭 | 15% 暴击率（暴击伤害 +50%） |
+| 鹰眼 | 炮弹在 150px 内自动追踪吸附最近敌人（伤害系数 0.75） |
+| 疾风 | 一次三发（每发伤害系数 0.45） |
 
-The only way to restore it is through the last **Star Fragment**.
+### 🃏 卡牌系统（每回合发 3 张，每回合限打 1 张，不消耗开火机会）
 
-> **Only the strongest warrior may carry the Star Fragment to save the world.**
+治疗 / 护盾（格挡 150）/ Double（+200 真实伤害）/ 复仇（下次炮击 +100）/ 涂毒（100 毒伤 + 2 回合持续毒）/ 血契（+400 真伤，消耗 200 生命，限一次）/ 狂暴（3 回合 +80）/ 堡垒（3 回合减伤 25%）
 
-Two adventurers arrive to claim it.
+### 📈 积分强化（回合积分在局内商店购买）
 
-**One Star Fragment. Two warriors. One final battle to decide the true Guardian of the Star.**
+追加发射物、暴击率、伤害加成、汲血、精准（无距离衰减）、二次爆破等 8 种强化。
 
-## ⚔️ The Warriors
+### 🗺️ 地图
 
-Four warriors answer the call. Two enter the arena — only one walks out as the Guardian of the Star.
+`random` 随机地形（多层正弦叠加 + 空中平台）/ `castle` 城堡地图（垛口 + 可破坏藤蔓），房主在等待界面切换。
 
-### 🏹 The Archer
+## 本地运行
 
-A calm forest ranger who grew up protecting the borders of her homeland.
+```bash
+npm install
+npm start
+# 打开 http://localhost:5000 （开两个浏览器标签页即可对战；PVE 单人可开局）
+```
 
-- **Strength:** precision, long-range attacks
-- **Personality:** calm, confident, focused
+## 部署到服务器
 
-> "I don't miss."
+服务器已安装 Node.js，执行：
 
-### 🔫 The Arcane Gunner
+```bash
+# 上传本项目目录到服务器后
+npm install --production
+PORT=80 node server.js        # 或使用默认端口 5000
+```
 
-A young inventor who built a magical firearm powered by crystals.
+生产环境建议用 pm2 守护进程：
 
-- **Strength:** fast attacks, technology combined with magic
-- **Personality:** inventive, confident, slightly arrogant
+```bash
+npm i -g pm2
+pm2 start server.js --name ddtgame
+pm2 save && pm2 startup
+```
 
-> "Why use a sword when technology exists?"
+Nginx 反向代理（支持 WebSocket）参考配置：
 
-### 💣 The Bomb Mage
+```nginx
+server {
+    listen 80;
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+}
+```
 
-A reckless magician who specializes in explosive magic.
+云服务器请放行对应端口（安全组/防火墙）。
 
-- **Strength:** powerful, unpredictable attacks
-- **Personality:** chaotic, overconfident, funny
+## 技术架构
 
-> "I know exactly what I'm doing."
+| 部分 | 说明 |
+| --- | --- |
+| 服务端 | Node.js + Express + Socket.IO，**服务器权威**：弹道积分、碰撞、伤害、地形破坏、回合计时、胜负判定全部在服务端计算，客户端无法作弊 |
+| 客户端 | 原生 Canvas 渲染（地形、坦克、弹道拖尾、爆炸粒子、伤害飘字），Socket.IO 实时同步；i18n 中英双语 |
+| 地形 | 1920 列高度图，随机多层正弦叠加生成；爆炸按圆形切削并增量同步给客户端 |
+| 匹配 | 快速匹配队列 + 自定义房间 + 观战 + 聊天 + 掉线重连（会话令牌 + 30 秒宽限） |
 
-*(Narrator: they absolutely do not.)*
+## 文件结构
 
-### 🥷 The Shadow Ninja
-
-A mysterious warrior from the Shadow Clan.
-
-- **Strength:** speed, evasion, surprise attacks
-- **Personality:** mysterious, quiet, confident
-
-> "You never saw me coming."
-
-## 📖 Story Progression
-
-1. **The Heart Star** — the magical source keeping the world's magic alive is disappearing.
-2. **The Star Fragment** — the last fragment is the only way to restore the Heart Star.
-3. **The Ancient Temple** — two adventurers arrive to claim the fragment.
-4. **The Final Battle** — only the strongest warrior can carry the Star Fragment.
-5. **The Guardian** — the winner becomes the true Guardian of the Star.
-
-## 🎬 In-Game Introduction
-
-> **The Heart Star is disappearing.**
->
-> The last **Star Fragment** is the only way to restore it.
->
-> **Only the strongest warrior may carry it.**
->
-> Two adventurers. One fragment.
->
-> **One final battle to decide the true Guardian of the Star.**
-
-> **CHOOSE YOUR WARRIOR**
-
-## 🎮 How the Story Connects to the Gameplay
-
-- The 1v1 battle is the final trial for the Star Fragment.
-- Each player controls an adventurer competing to become the Guardian of the Star.
-- Only one warrior can claim the Star Fragment.
-- The winner becomes the true Guardian of the Star — and carries the Fragment to save the world.
-
-## 部署与延迟说明
-
-- Replit 免费节点部署在美国，跨国访问存在 **300ms 左右的固有物理延迟**（代码无法消除）；
-- 如需低延迟体验，建议迁移至离玩家更近的平台：**Fly.io**（可选香港/东京区域）、**Railway**，或国内云轻量应用服务器；
-- 迁移零代码改动：`npm install && node server.js`，仅需设置环境变量 `PORT`（多数平台自动注入）；
-- 游戏内右下角实时显示 **FPS** 与**网络延迟**，并标注当前连接方式（WS/POLLING）——若显示 POLLING，说明 WebSocket 未建立成功，延迟会显著升高。
+```
+server.js                游戏服务器（房间/回合/物理/伤害/卡牌/强化/PVE 怪物）
+public/index.html        大厅 + 战斗界面
+public/client.js         Canvas 渲染与输入
+public/i18n.js           中英双语文案
+public/sfx.js            音效
+public/style.css         样式
+test-smoke.js            双人随机对战冒烟测试
+test-hit.js              精确命中/伤害/胜负集成测试
+test-team.js             组队对战测试
+tools/                   生成脚本与专项测试（重连/观战/卡牌/Boss 等）
+```
