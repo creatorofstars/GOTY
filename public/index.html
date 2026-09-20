@@ -8,6 +8,18 @@
 </head>
 <body>
 
+<!-- 多语言面板：左下角，按国旗切换 -->
+<div id="langPanel">
+  <button class="lang-btn" data-lang="zh" title="中文">
+    <svg viewBox="0 0 30 20" width="30" height="20"><rect width="30" height="20" fill="#de2910"/><path fill="#ffde00" d="M5 3.2 6.1 6.6 3.2 4.5h3.9L4.2 6.6z"/><circle cx="10.5" cy="2.6" r="1" fill="#ffde00"/><circle cx="12" cy="4.2" r="1" fill="#ffde00"/><circle cx="12" cy="6.4" r="1" fill="#ffde00"/><circle cx="10.5" cy="8" r="1" fill="#ffde00"/></svg>
+    <span>中文</span>
+  </button>
+  <button class="lang-btn" data-lang="en" title="English">
+    <svg viewBox="0 0 30 20" width="30" height="20"><rect width="30" height="20" fill="#fff"/><g fill="#b22234"><rect y="0" width="30" height="1.6"/><rect y="3.2" width="30" height="1.6"/><rect y="6.4" width="30" height="1.6"/><rect y="9.6" width="30" height="1.6"/><rect y="12.8" width="30" height="1.6"/><rect y="16" width="30" height="1.6"/><rect y="19.2" width="30" height="1.6"/></g><rect width="13" height="10.4" fill="#3c3b6e"/></svg>
+    <span>EN</span>
+  </button>
+</div>
+
 <!-- 大厅 -->
 <div id="lobby" class="screen">
   <div class="sky-bg">
@@ -16,20 +28,20 @@
   </div>
   <div class="lobby-box">
     <h1>💣 弹弹堂 <span class="sub">Online</span></h1>
-    <p class="tip">经典回合制炮弹对战 · 支持多人观战</p>
+    <p class="tip" data-i18n="lobby_tip"></p>
     <div class="row">
-      <label>昵称</label>
-      <input id="nameInput" maxlength="12" placeholder="输入昵称">
+      <label data-i18n="nick"></label>
+      <input id="nameInput" maxlength="12" data-i18n-ph="nick_ph">
     </div>
     <div class="row">
-      <button id="quickBtn" class="btn primary">⚡ 快速匹配</button>
+      <button id="quickBtn" class="btn primary" data-i18n="quick"></button>
     </div>
     <div class="row">
-      <input id="roomInput" maxlength="10" placeholder="房间名">
-      <button id="createBtn" class="btn">创建房间</button>
-      <button id="pveBtn" class="btn">👾 PVE房间</button>
+      <input id="roomInput" maxlength="10" data-i18n-ph="room_name_ph">
+      <button id="createBtn" class="btn" data-i18n="create_room"></button>
+      <button id="pveBtn" class="btn" data-i18n="pve_room"></button>
     </div>
-    <h3>房间列表 <button id="refreshBtn" class="btn small">刷新</button></h3>
+    <h3><span data-i18n="room_list"></span> <button id="refreshBtn" class="btn small" data-i18n="refresh"></button></h3>
     <ul id="roomList"></ul>
     <p id="lobbyErr" class="err"></p>
   </div>
@@ -41,25 +53,39 @@
     <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
     <div class="cloud c1"></div><div class="cloud c2"></div><div class="cloud c3"></div>
   </div>
-  <div class="lobby-box">
-    <h2>🏠 房间 <span id="rsRoomId" class="sub"></span></h2>
+  <div id="rsWrap">
+    <div class="lobby-box">
+    <h2><span data-i18n="room_title"></span> <span id="rsRoomId" class="sub"></span></h2>
     <div id="rsMain">
       <div id="rsTeams">
-        <div class="team-col red"><h4>🔴 红队</h4><ul id="rsTeam0"></ul></div>
+        <div class="team-col red"><h4 data-i18n="team_red"></h4><ul id="rsTeam0"></ul></div>
         <div class="vs" id="rsVs">VS</div>
-        <div class="team-col blue"><h4>🔵 蓝队</h4><ul id="rsTeam1"></ul></div>
+        <div class="team-col blue"><h4 data-i18n="team_blue"></h4><ul id="rsTeam1"></ul></div>
       </div>
       <div id="rsCharCol">
-        <h3>选择角色 <span class="tip-inline">（点击更换）</span></h3>
+        <h3><span data-i18n="pick_char"></span> <span class="tip-inline" data-i18n="pick_char_hint"></span></h3>
         <div id="charPick"></div>
+        <div id="mapPick">
+          <h3 data-i18n="map"></h3>
+          <button id="mapDropdown" class="btn map-dd"></button>
+        </div>
       </div>
     </div>
-    <p class="tip" id="rsTip">等待玩家加入…（2~6人可开局）</p>
-    <div class="row" style="margin-top:16px">
-      <button id="rsStartBtn" class="btn primary big" style="flex:1" disabled>开始游戏</button>
-      <button id="rsLeaveBtn" class="btn">离开房间</button>
+    <p class="tip" id="rsTip"></p>
+    <div class="row" style="margin-top:10px">
+      <button id="rsStartBtn" class="btn primary big" style="flex:1" data-i18n="start_game" disabled></button>
+      <button id="rsLeaveBtn" class="btn" data-i18n="leave_room"></button>
     </div>
     <p id="rsHint" class="err"></p>
+    </div>
+    <div id="rsChat" class="chat-panel">
+      <h3>💬 <span data-i18n="chat_title"></span></h3>
+      <div class="chatLog" id="rsChatLog"></div>
+      <div class="chatrow">
+        <input id="rsChatInput" maxlength="120" data-i18n-ph="chat_ph">
+        <button id="rsChatBtn" class="btn small" data-i18n="send"></button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -70,49 +96,49 @@
 
     <div class="topbar">
       <div class="pinfo" id="team0info">
-        <div class="teamname">🔴 红队</div>
+        <div class="teamname" data-i18n="team_red"></div>
         <div class="hprows" id="team0rows"></div>
       </div>
       <div class="center-hud">
-        <div id="turnLabel">等待玩家…</div>
-        <div class="wind">风向 <span id="windVal">0</span> <span id="windArrow"></span></div>
+        <div id="turnLabel"></div>
+        <div class="wind"><span data-i18n="wind_label"></span> <span id="windVal">0</span> <span id="windArrow"></span></div>
         <div id="timer">20</div>
       </div>
       <div class="pinfo right" id="team1info">
-        <div class="teamname">🔵 蓝队</div>
+        <div class="teamname" data-i18n="team_blue"></div>
         <div class="hprows" id="team1rows"></div>
       </div>
     </div>
 
     <div class="bottombar">
       <div class="controls">
-        <button class="btn" id="barToggle">▼ 收起</button>
-        <button class="btn" id="leaveBtn">离开房间</button>
-        <button class="btn" id="fsBtn">⛶ 全屏</button>
-        <button class="btn" id="bgmBtn" title="背景音乐开关">🔊 音乐</button>
+        <button class="btn" id="barToggle" data-i18n="collapse"></button>
+        <button class="btn" id="leaveBtn" data-i18n="leave_room"></button>
+        <button class="btn" id="fsBtn" data-i18n="fullscreen"></button>
+        <button class="btn" id="bgmBtn" data-i18n="music_on"></button>
       </div>
-      <div class="keyhint">⌨️ A/D 移动 · W/S 调角度 · 空格蓄力发射</div>
+      <div class="keyhint" data-i18n="keyhint"></div>
       <div class="chat">
-        <div id="chatLog"></div>
+        <div class="chatLog" id="chatLog"></div>
         <div class="chatrow">
-          <input id="chatInput" maxlength="120" placeholder="按回车发送…">
-          <button id="chatBtn" class="btn small">发送</button>
+          <input id="chatInput" maxlength="120" data-i18n-ph="chat_ph">
+          <button id="chatBtn" class="btn small" data-i18n="send"></button>
         </div>
       </div>
     </div>
 
     <div id="aimHud">
-      <span>朝向 <b id="faceVal">→</b></span>
-      <span>局部角 <b id="angleVal">45</b>°</span>
-      <span>最终角 <b id="finalAngleVal">45</b>°</span>
-      <span>力度 <b id="powerVal">40</b></span>
-      <span>移动 <b id="moveVal">150</b></span>
+      <span><span data-i18n="hud_face"></span> <b id="faceVal">→</b></span>
+      <span><span data-i18n="hud_angle"></span> <b id="angleVal">45</b>°</span>
+      <span><span data-i18n="hud_final"></span> <b id="finalAngleVal">45</b>°</span>
+      <span><span data-i18n="hud_power"></span> <b id="powerVal">40</b></span>
+      <span><span data-i18n="hud_move"></span> <b id="moveVal">150</b></span>
     </div>
     <div id="powerBarWrap"><div id="powerBar"></div><div id="powerMark"></div></div>
-    <div id="netHud">FPS -- · 延迟 --</div>
+    <div id="netHud"></div>
     <div id="cardHand"></div>
     <div id="pointsPanel">
-      <div id="pointsVal">积分 0</div>
+      <div id="pointsVal"></div>
       <div id="upgList"></div>
     </div>
     <div id="toast" class="hidden"></div>
@@ -120,21 +146,31 @@
   </div>
 </div>
 
+<!-- 地图选择面板（中央弹出/收起） -->
+<div id="mapModal" class="hidden">
+  <div class="map-modal-box">
+    <h3 data-i18n="map_pick"></h3>
+    <button class="btn map-mopt" data-map="random"><span data-i18n="map_random"></span><span data-i18n="map_random_desc"></span></button>
+    <button class="btn map-mopt" data-map="castle"><span data-i18n="map_castle"></span><span data-i18n="map_castle_desc"></span></button>
+  </div>
+</div>
+
 <!-- 音乐询问浮层（浏览器自动播放策略：需用户点击后才能播放） -->
 <div id="musicPrompt">
   <div class="mp-box">
     <div class="mp-icon">🎵</div>
-    <p class="mp-title">是否打开游戏音乐？</p>
-    <p class="mp-sub">包含背景音乐与战斗音效</p>
+    <p class="mp-title" data-i18n="mp_title"></p>
+    <p class="mp-sub" data-i18n="mp_sub"></p>
     <div class="row" style="justify-content:center;margin:14px 0 0">
-      <button id="mpYes" class="btn primary">🎵 打开音乐</button>
-      <button id="mpNo" class="btn">🔇 暂不</button>
+      <button id="mpYes" class="btn primary" data-i18n="mp_yes"></button>
+      <button id="mpNo" class="btn" data-i18n="mp_no"></button>
     </div>
   </div>
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="sfx.js"></script>
+<script src="i18n.js"></script>
 <script src="client.js"></script>
 </body>
 </html>

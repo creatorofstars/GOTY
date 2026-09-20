@@ -13,6 +13,8 @@ let myName = '';
 let roomId = null;
 let isSpectator = false;
 let terrain = new Float32Array(W);
+let mapMode = 'random';                   // 当前地图：random | castle（决定贴图风格与背景）
+const castleBg = new Image(); castleBg.src = '/texture/castle_bg.png';
 // 2D 可破坏地形：离屏画布（显示）+ 实心网格（本地碰撞预估，权威在服务器）
 const tcv = document.createElement('canvas');
 tcv.width = W; tcv.height = H;
@@ -36,68 +38,120 @@ function smoothNoise(x, seed) {
   return a + (b - a) * (f * f * (3 - 2 * f)); // smoothstep 插值
 }
 
-/** 分层地形贴图：草皮/泥土/岩石三层，每层带渐变与噪声，避免单调 */
+/** 地面柱体：草皮/泥土/岩石三层，每层带渐变与噪声 */
+function drawGroundColumn(x, top) {
+  const grassH = 8;
+  const dirtH = 38 + Math.round(5 * Math.sin(x * 0.045) + 3 * Math.sin(x * 0.013));
+  // 草皮：亮度用低频噪声平滑过渡，形成自然的明暗斑块而非竖条纹
+  const gl = 36 + smoothNoise(x, 1) * 7;
+  tctx.fillStyle = `hsl(96, 48%, ${gl}%)`;
+  tctx.fillRect(x, top, 1, Math.min(grassH, H - top));
+  tctx.fillStyle = `hsl(90, 55%, ${gl + 14}%)`;
+  tctx.fillRect(x, top, 1, Math.min(3, H - top));
+  // 泥土：暖棕，亮度和色相平滑微扰
+  const dirtTop = top + grassH;
+  const dd = Math.max(0, Math.min(dirtH, H - dirtTop));
+  if (dd > 0) {
+    const dl = 26 + smoothNoise(x, 2) * 5;
+    tctx.fillStyle = `hsl(${24 + smoothNoise(x, 3) * 6}, 42%, ${dl}%)`;
+    tctx.fillRect(x, dirtTop, 1, dd);
+  }
+  // 岩石：冷灰，亮度和色温平滑微扰
+  const stoneTop = dirtTop + dd;
+  if (stoneTop < H) {
+    const sl = 34 + smoothNoise(x, 4) * 7;
+    tctx.fillStyle = `hsl(${210 + smoothNoise(x, 5) * 14}, 7%, ${sl}%)`;
+    tctx.fillRect(x, stoneTop, 1, H - stoneTop);
+  }
+}
+
+/** 分层地形贴图：按地图模式绘制城堡石材或地面层 */
 function buildTerrainTexture(heightArr) {
   tctx.clearRect(0, 0, W, H);
   for (let x = 0; x < W; x++) {
     const top = Math.max(0, Math.round(heightArr[x] || H)); // 与碰撞网格完全一致
     if (top >= H) continue;
-    const grassH = 8;
-    const dirtH = 38 + Math.round(10 * Math.sin(x * 0.045) + 6 * Math.sin(x * 0.013));
-    // 草皮：亮度用低频噪声平滑过渡，形成自然的明暗斑块而非竖条纹
-    const gl = 36 + smoothNoise(x, 1) * 14;
-    tctx.fillStyle = `hsl(96, 48%, ${gl}%)`;
-    tctx.fillRect(x, top, 1, Math.min(grassH, H - top));
-    tctx.fillStyle = `hsl(90, 55%, ${gl + 14}%)`;
-    tctx.fillRect(x, top, 1, Math.min(3, H - top));
-    // 泥土：暖棕，亮度和色相平滑微扰
-    const dirtTop = top + grassH;
-    const dd = Math.max(0, Math.min(dirtH, H - dirtTop));
-    if (dd > 0) {
-      const dl = 26 + smoothNoise(x, 2) * 10;
-      tctx.fillStyle = `hsl(${24 + smoothNoise(x, 3) * 6}, 42%, ${dl}%)`;
-      tctx.fillRect(x, dirtTop, 1, dd);
-    }
-    // 岩石：冷灰，亮度和色温平滑微扰
-    const stoneTop = dirtTop + dd;
-    if (stoneTop < H) {
-      const sl = 34 + smoothNoise(x, 4) * 14;
-      tctx.fillStyle = `hsl(${210 + smoothNoise(x, 5) * 14}, 7%, ${sl}%)`;
-      tctx.fillRect(x, stoneTop, 1, H - stoneTop);
+    if (mapMode === 'castle' && top < 790) {
+      // 城堡结构柱体：暖灰石材 + 砖缝，画到平地高度为止；底部之下回归地面材质
+      const gl = 40 + smoothNoise(x, 1) * 12;
+      // 与服务端 genCastleTerrain 平地公式一致：逐列计算当地地面高度，石体与草地严丝合缝
+      const groundLvl = Math.round(H * 0.78 + Math.sin(x * 0.006) * 8 + Math.sin(x * 0.021 + 2) * 4);
+      const stoneBottom = Math.min(H, groundLvl);
+      tctx.fillStyle = `hsl(34, 14%, ${gl + 18}%)`;
+      tctx.fillRect(x, top, 1, stoneBottom - top);
+      tctx.fillStyle = `hsl(38, 20%, ${gl + 30}%)`;
+      tctx.fillRect(x, top, 1, Math.min(5, stoneBottom - top)); // 石帽亮边
+      for (let y = top + 14; y < stoneBottom; y += 16) {
+        const bandShift = (Math.floor((y - top) / 16) % 2) * 14; // 每行错缝
+        tctx.fillStyle = 'rgba(0,0,0,.14)';
+        tctx.fillRect(x, y, 1, 1);
+        if (((x + bandShift) % 28) === 0) tctx.fillRect(x, y, 1, 15);
+      }
+      if (stoneBottom < H) drawGroundColumn(x, groundLvl);
+    } else {
+      // 地面（城堡地图的平地与随机地图通用）：草皮/泥土/岩石三层
+      drawGroundColumn(x, top);
     }
   }
-  // 噪声斑点：泥土小石子、岩石矿物斑（低透明度点缀）
+  // 噪声斑点：泥土小石子、岩石矿物斑（低透明度点缀）；约6%为2~3px大石块（大颗粒稀疏）
   for (let i = 0; i < 1800; i++) {
     const x = Math.floor(hashN(i, 7) * W);
     const top = Math.max(0, Math.round(heightArr[x] || H));
     const r = hashN(i, 8);
+    const bigStone = hashN(i, 11) > 0.94;
+    const sw = bigStone ? 2 + Math.floor(hashN(i, 13) * 2) : 1;
     if (r < 0.4) { // 泥土层：深浅石子
       const y = top + 10 + Math.floor(hashN(i, 9) * 34);
       tctx.fillStyle = hashN(i, 10) > 0.5 ? 'rgba(0,0,0,.12)' : 'rgba(255,220,170,.08)';
-      tctx.fillRect(x, y, 1, 1);
+      tctx.fillRect(x, y, sw, sw);
     } else { // 岩石层：矿物亮斑
       const y = top + 52 + Math.floor(hashN(i, 12) * (H - top - 60));
       if (y >= top + 52 && y < H) {
         tctx.fillStyle = 'rgba(255,255,255,.05)';
-        tctx.fillRect(x, y, 1, 1);
+        tctx.fillRect(x, y, sw, sw);
       }
     }
   }
-  // 斑驳噪声：逐像素随机明暗扰动（只作用于已绘制的地形像素），模拟自然斑驳质感
+  // 细颗粒逐像素噪声（密集小颗粒质感）
   const noiseImg = tctx.getImageData(0, 0, W, H);
   const px = noiseImg.data;
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
       const idx = (y * W + x) * 4;
       if (px[idx + 3] === 0) continue; // 跳过天空
-      const n = (hashN(x * 4919 + y * 7919, 21) - 0.5) * 30
-              + (hashN(Math.floor(x / 5) * 131 + Math.floor(y / 5) * 73, 22) - 0.5) * 18; // 细颗粒 + 中尺度斑块
+      const n = (hashN(x * 4919 + y * 7919, 21) - 0.5) * 30;
       px[idx]     = Math.max(0, Math.min(255, px[idx] + n));
       px[idx + 1] = Math.max(0, Math.min(255, px[idx + 1] + n));
       px[idx + 2] = Math.max(0, Math.min(255, px[idx + 2] + n * 0.8));
     }
   }
   tctx.putImageData(noiseImg, 0, 0);
+  // 中、大斑块：随机旋转的不规则凸多边形（5~7边），只染在已绘制地形上（source-atop裁剪）
+  // 中斑块小而密集（~700个，半径6~14px），大斑块大而稀疏（~90个，半径24~52px）
+  tctx.globalCompositeOperation = 'source-atop';
+  const drawBlotch = (i, rMin, rMax, alpha) => {
+    const cx = hashN(i, 31) * W;
+    const cy = hashN(i, 32) * H;
+    const R = rMin + hashN(i, 33) * (rMax - rMin);
+    const sides = 5 + Math.floor(hashN(i, 34) * 3); // 5/6/7边形
+    const rot = hashN(i, 35) * Math.PI * 2;          // 随机旋转角
+    tctx.fillStyle = hashN(i, 36) > 0.5
+      ? `rgba(0,0,0,${(alpha * (0.6 + hashN(i, 37) * 0.4)).toFixed(3)})`
+      : `rgba(255,244,220,${(alpha * (0.6 + hashN(i, 37) * 0.4)).toFixed(3)})`;
+    tctx.beginPath();
+    for (let k = 0; k < sides; k++) {
+      const a = rot + (k / sides) * Math.PI * 2;
+      const rr = R * (0.72 + hashN(i * 97 + k, 38) * 0.56); // 顶点半径抖动（保持凸性幅度内）
+      const vx = cx + Math.cos(a) * rr, vy = cy + Math.sin(a) * rr * 0.8; // 略压扁更自然
+      if (k === 0) tctx.moveTo(vx, vy); else tctx.lineTo(vx, vy);
+    }
+    tctx.closePath();
+    tctx.fill();
+  };
+  for (let i = 0; i < 700; i++) drawBlotch(i, 6, 14, 0.07);        // 中斑块：密集
+  for (let i = 0; i < 90; i++) drawBlotch(5000 + i, 24, 52, 0.10); // 大斑块：稀疏
+  tctx.globalCompositeOperation = 'source-over';
+  if (mapMode === 'castle') drawCastleWindows(heightArr);
   drawPlatforms();
   mask = new Uint8Array(W * H);
   for (let x = 0; x < W; x++) {
@@ -112,6 +166,13 @@ function buildTerrainTexture(heightArr) {
           const nx = (x + 0.5 - cx) / rx, ny = (y + 0.5 - cy) / ry;
           if (nx * nx + ny * ny <= 1) mask[y * W + x] = 1;
         }
+    } else if (pf.shape === 'vine') {
+      // 与服务端 buildMask 完全一致的波状藤干（4px芯）
+      const cx = pf.x + pf.w / 2;
+      for (let y = Math.max(0, pf.y); y < Math.min(H, pf.y + pf.h); y++) {
+        const xc = Math.round(cx + Math.sin((y - pf.y) * 0.08 + (pf.phase || 0)) * 4);
+        for (let x = Math.max(0, xc - 2); x <= Math.min(W - 1, xc + 2); x++) mask[y * W + x] = 1;
+      }
     } else {
       for (let x = Math.max(0, pf.x); x < Math.min(W, pf.x + pf.w); x++)
         for (let y = Math.max(0, pf.y); y < Math.min(H, pf.y + pf.h); y++) mask[y * W + x] = 1;
@@ -119,10 +180,75 @@ function buildTerrainTexture(heightArr) {
   }
 }
 
-/** 空中平台：卡通风格单色草绿圆角块 */
+/** 城堡窗户与大门（纯装饰，不参与碰撞；只画在实心石体内） */
+function drawCastleWindows(heightArr) {
+  const solid = (cx, y) => (heightArr[Math.max(0, Math.min(W - 1, cx))] || H) < y;
+  // 拱形窗：浅色石框 + 深色/暖光窗洞 + 中竖棂
+  function archWin(cx, cy, w, h, lit) {
+    if (!solid(cx, cy - h / 2)) return;
+    const hw = w / 2, arcR = hw;
+    const path = new Path2D();
+    path.moveTo(cx - hw, cy + h / 2);
+    path.lineTo(cx - hw, cy - h / 2 + arcR);
+    path.arc(cx, cy - h / 2 + arcR, arcR, Math.PI, 0);
+    path.lineTo(cx + hw, cy + h / 2);
+    path.closePath();
+    // 石框：先填外拱，再用略小的内拱盖出窗洞，边缘自然露出3px框
+    tctx.fillStyle = '#ded2ba';
+    tctx.fill(path);
+    const inner = new Path2D();
+    const ihw = hw - 3;
+    inner.moveTo(cx - ihw, cy + h / 2);
+    inner.lineTo(cx - ihw, cy - h / 2 + ihw);
+    inner.arc(cx, cy - h / 2 + ihw, ihw, Math.PI, 0);
+    inner.lineTo(cx + ihw, cy + h / 2);
+    inner.closePath();
+    if (lit) {
+      const g = tctx.createLinearGradient(cx, cy - h / 2, cx, cy + h / 2);
+      g.addColorStop(0, '#ffe9a8'); g.addColorStop(1, '#ff9d3c');
+      tctx.fillStyle = g;
+    } else {
+      tctx.fillStyle = '#2e3a55';
+    }
+    tctx.fill(inner);
+    // 中竖棂
+    tctx.fillStyle = lit ? 'rgba(120,70,20,.55)' : 'rgba(200,210,230,.35)';
+    tctx.fillRect(cx - 1, cy - h / 2 + ihw, 2, h - ihw);
+  }
+  // 左塔 / 右塔：每塔3扇竖窗；主堡：3扇大窗 + 底部大门
+  const towerWins = [870, 1290];
+  for (const cx of towerWins) {
+    archWin(cx, 460, 46, 34, hashN(cx, 41) < 0.4);
+    archWin(cx, 540, 46, 34, hashN(cx, 42) < 0.4);
+    archWin(cx, 620, 46, 34, hashN(cx, 43) < 0.4);
+  }
+  archWin(1016, 380, 54, 40, true);
+  archWin(1080, 380, 54, 40, hashN(1080, 44) < 0.4);
+  archWin(1144, 380, 54, 40, false);
+  archWin(1080, 480, 54, 40, hashN(1081, 45) < 0.4);
+  // 主堡底部装饰大门（木质双扇 + 拱顶）
+  const gx = 1080, gTop = 780, gBot = Math.round(H * 0.78 + Math.sin(1080 * 0.006) * 8 + Math.sin(1080 * 0.021 + 2) * 4) + 4, gw = 88;
+  if (solid(gx, gTop)) {
+    const door = new Path2D();
+    door.moveTo(gx - gw / 2, gBot);
+    door.lineTo(gx - gw / 2, gTop + gw / 2);
+    door.arc(gx, gTop + gw / 2, gw / 2, Math.PI, 0);
+    door.lineTo(gx + gw / 2, gBot);
+    door.closePath();
+    tctx.fillStyle = '#4a3524';
+    tctx.fill(door);
+    tctx.fillStyle = 'rgba(255,220,160,.15)';
+    tctx.fillRect(gx - 1, gTop + 8, 2, gBot - gTop - 8); // 门缝
+    tctx.strokeStyle = 'rgba(30,20,10,.5)'; tctx.lineWidth = 2;
+    tctx.stroke(door);
+  }
+}
+
+/** 空中平台与藤蔓：草绿圆角块 / 波状藤干+叶片 */
 function drawPlatforms() {
   // 卡通浮空岛：单一草绿色圆角块 + 噪声斑驳（无描边、无分层）
   for (const pf of platforms) {
+    if (pf.shape === 'vine') { drawVine(pf); continue; }
     const R = 12;
     tctx.save();
     rr(tctx, pf.x, pf.y, pf.w, pf.h, R);
@@ -144,13 +270,63 @@ function drawPlatforms() {
   }
 }
 
+/** 藤蔓：波状藤干（与碰撞芯一致）+ 交替叶片 + 底端卷须 */
+function drawVine(pf) {
+  const cx = pf.x + pf.w / 2, ph = pf.phase || 0;
+  const xc = y => cx + Math.sin((y - pf.y) * 0.08 + ph) * 4;
+  tctx.save();
+  // 藤干：双线描出宽度，深绿描边+亮绿芯
+  tctx.beginPath();
+  for (let y = pf.y; y <= pf.y + pf.h; y += 2) (y === pf.y) ? tctx.moveTo(xc(y), y) : tctx.lineTo(xc(y), y);
+  tctx.strokeStyle = '#2e5b1e'; tctx.lineWidth = 5; tctx.lineCap = 'round'; tctx.stroke();
+  tctx.strokeStyle = '#4e8f2f'; tctx.lineWidth = 2.5; tctx.stroke();
+  // 叶片：沿藤干两侧交替，五瓣小叶（三短弧近似）
+  for (let y = pf.y + 12; y < pf.y + pf.h - 6; y += 18) {
+    const side = ((y - pf.y) / 18) % 2 === 0 ? 1 : -1;
+    const lx = xc(y) + side * 4, ly = y;
+    const ang = side * 0.9;
+    tctx.save();
+    tctx.translate(lx, ly); tctx.rotate(ang);
+    tctx.fillStyle = hashN(y + pf.x, 61) > 0.5 ? '#4e8f2f' : '#3f7d2c';
+    tctx.beginPath();
+    tctx.ellipse(7, 0, 8, 4.5, 0, 0, 7);
+    tctx.fill();
+    tctx.fillStyle = 'rgba(255,255,255,.14)';
+    tctx.beginPath(); tctx.ellipse(7, -1, 4, 1.6, 0, 0, 7); tctx.fill();
+    tctx.restore();
+  }
+  // 底端卷须：小螺旋
+  tctx.beginPath();
+  const ex = xc(pf.y + pf.h), ey = pf.y + pf.h;
+  for (let ang = 0; ang < 3.14 * 3; ang += 0.2) {
+    const r = 5 * (1 - ang / (3.14 * 3));
+    const px2 = ex + Math.cos(ang + ph) * r, py2 = ey + 6 + Math.sin(ang + ph) * r * 0.8 + ang * 0.8;
+    ang === 0 ? tctx.moveTo(px2, py2) : tctx.lineTo(px2, py2);
+  }
+  tctx.strokeStyle = '#4e8f2f'; tctx.lineWidth = 2; tctx.stroke();
+  tctx.restore();
+}
+
+/** 按爆炸圆域整圆擦除贴图与本地mask（藤蔓叶片/卷须比碰撞芯宽，逐run擦会残留装饰像素） */
+function eraseBoomCircle(cx, cy, r) {
+  tctx.save();
+  tctx.beginPath(); tctx.arc(cx, cy, r, 0, 7); tctx.clip();
+  tctx.clearRect(cx - r - 1, cy - r - 1, r * 2 + 2, r * 2 + 2);
+  tctx.restore();
+  const x0 = Math.max(0, Math.floor(cx - r)), x1 = Math.min(W - 1, Math.ceil(cx + r));
+  const y0 = Math.max(0, Math.floor(cy - r)), y1 = Math.min(H - 1, Math.ceil(cy + r));
+  for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
+    const dx = x - cx, dy = y - cy;
+    if (dx * dx + dy * dy <= r * r) mask[y * W + x] = 0;
+  }
+}
+
 function applyTerrainRuns(runs) {
   // 1. 先清除弹坑本体（必须在收集烧焦边之前，否则弹坑内部会被误染黑）
   for (const r of runs) {
     tctx.clearRect(r.x, r.y0, 1, r.y1 - r.y0 + 1);
     for (let y = r.y0; y <= r.y1; y++) mask[y * W + r.x] = 0;
-  }
-  // 2. 渐变焦痕带：由坑缘向外4px（4环），透明度逐环递减形成渐变
+  }  // 2. 渐变焦痕带：由坑缘向外4px（4环），透明度逐环递减形成渐变
   const done = new Set();
   let frontier = [];
   for (const r of runs) {
@@ -309,7 +485,7 @@ function netTick(now) {
     fpsFrames = 0; fpsLast = now;
     const transport = (socket.io && socket.io.engine) ? socket.io.engine.transport.name.toUpperCase() : '--';
     const avg = rttHistory.length ? Math.round(rttHistory.reduce((a, b) => a + b, 0) / rttHistory.length) : null;
-    $('netHud').textContent = `FPS ${fps} · 延迟 ${avg == null ? '--' : avg + 'ms'} · ${transport}`;
+    $('netHud').textContent = tf('fps_ping', { fps, rtt: avg == null ? '--' : avg + 'ms', tp: transport });
   }
   if (now - lastPingSent >= 2000) {
     lastPingSent = now;
@@ -440,7 +616,7 @@ socket.on('lobby', ({ rooms, yourName }) => {
   const ul = $('roomList');
   ul.innerHTML = '';
   if (!rooms.length) {
-    ul.innerHTML = '<li class="empty">暂无房间，创建一个吧</li>';
+    ul.innerHTML = `<li class="empty">${t('no_room')}</li>`;
     return;
   }
   for (const r of rooms) {
@@ -468,7 +644,7 @@ socket.on('joined', ({ roomId: rid, isSpectator: spec, inGame }) => {
   roomId = rid;
   isSpectator = spec;
   lobbyEl.classList.add('hidden');
-  $('chatLog').innerHTML = '';
+  document.querySelectorAll('.chatLog').forEach(l => l.innerHTML = '');
   if (inGame) {
     // 直播进行中的对局，直接进入游戏画面
     roomScreenEl.classList.add('hidden');
@@ -482,7 +658,9 @@ socket.on('joined', ({ roomId: rid, isSpectator: spec, inGame }) => {
 });
 
 /* ---------- 房间等待界面 ---------- */
-socket.on('room', (r) => {
+let lastRoom = null; // 保存最近一次房间广播，语言切换时用它重绘
+socket.on('room', (r) => { lastRoom = r; renderRoom(r); });
+function renderRoom(r) {
   hostSid = r.hostSid;
   isHost = r.hostSid === socket.id;
   // 房主开局后，等待界面整体切换到游戏画面
@@ -495,18 +673,18 @@ socket.on('room', (r) => {
   isHost = r.hostSid === socket.id;
   $('rsRoomId').textContent = r.id;
   // 红蓝两队分列左右，中央VS；每个玩家带角色头像
-  const CHARS_SHORT = CHAR_NAMES;
+  const CHARS_SHORT = CHAR_NAMES();
   const actives = r.players.filter(p => !p.spectator);
-  for (let t = 0; t < 2; t++) {
-    const ul = $('rsTeam' + t);
+  for (let team = 0; team < 2; team++) {
+    const ul = $('rsTeam' + team);
     if (!ul) continue;
     ul.innerHTML = '';
-    const mates = actives.filter(p => p.team === t);
+    const mates = actives.filter(p => p.team === team);
     for (const p of mates) {
       const li = document.createElement('li');
       const host = p.sid === r.hostSid ? '<span class="crown">👑</span>' : '';
       const cimg = CHARS[(p.char || 0) % CHARS.length];
-      li.innerHTML = `<img src="${cimg}" alt=""><div class="pinfo2">${host}${escapeHtml(p.name)}${p.sid === socket.id ? ' (你)' : ''}</div><span class="chint">${CHARS_SHORT[p.char || 0]}</span>`;
+      li.innerHTML = `<img src="${cimg}" alt=""><div class="pinfo2">${host}${escapeHtml(p.name)}${p.sid === socket.id ? t('you') : ''}</div><span class="chint">${CHARS_SHORT[p.char || 0]}</span>`;
       ul.appendChild(li);
     }
   }
@@ -516,17 +694,59 @@ socket.on('room', (r) => {
   const startBtn = $('rsStartBtn');
   const isPve = r.mode === 'pve';
   renderCharPick(r);
+  renderMapPick(r);
   const need = isPve ? 1 : 2;
   startBtn.style.display = isHost ? '' : 'none';
   startBtn.disabled = actives.length < need;
   const specs = r.players.filter(p => p.spectator);
-  $('rsTip').textContent = (specs.length ? `👀 观战中：${specs.map(p => escapeHtml(p.name)).join('、')} · ` : '') +
+  $('rsTip').textContent = (specs.length ? tf('spec', { list: specs.map(p => escapeHtml(p.name)).join('、') }) : '') +
     (actives.length < need
-      ? `等待玩家加入…（当前 ${actives.length} 人，${isPve ? 'PVE 1 人即可开局' : '2 人以上可开局'}）`
-      : `当前 ${actives.length} 名玩家${isPve ? '（PVE）' : ''}，房主可随时开始`);
-});
+      ? tf('tip_wait', { n: actives.length, need: t(isPve ? 'tip_pve_need' : 'tip_pvp_need') })
+      : tf('tip_ready', { n: actives.length, mode: isPve ? t('tip_pve') : '' }));
+}
 
 function isPveRoom(r) { return r.mode === 'pve'; }
+
+/* 地图选择：下拉框 + 中央弹出面板（打开时从中心放大，选择后缩回中心消失） */
+const MAP_LABEL = () => ({ random: t('map_random'), castle: t('map_castle') });
+let curMap = 'random';
+window.addEventListener('langchange', () => {
+  // 语言切换后即时刷新动态文本；房间界面用最近一次广播数据整体重绘
+  if (lastRoom && !roomScreenEl.classList.contains('hidden')) renderRoom(lastRoom);
+  const dd = $('mapDropdown');
+  if (dd) dd.textContent = MAP_LABEL()[curMap] + ' ▾';
+  const bgm = $('bgmBtn');
+  if (bgm) bgm.textContent = /🔇|静音|Muted/.test(bgm.textContent) ? t('music_off') : t('music_on');
+});
+function renderMapPick(r) {
+  const cur = r.map === 'castle' ? 'castle' : 'random';
+  curMap = cur;
+  const dd = $('mapDropdown');
+  dd.textContent = MAP_LABEL()[cur] + ' ▾';
+  dd.disabled = !isHost;
+  dd.title = isHost ? t('map_dd_hint') : t('map_host_only');
+  document.querySelectorAll('.map-mopt').forEach(btn => {
+    btn.classList.toggle('primary', btn.dataset.map === cur);
+  });
+}
+function openMapModal() {
+  const m = $('mapModal');
+  m.classList.remove('hidden', 'closing');
+  m.classList.add('opening');
+}
+function closeMapModal() {
+  const m = $('mapModal');
+  if (m.classList.contains('hidden')) return;
+  m.classList.remove('opening');
+  m.classList.add('closing');
+  // 缩放动画结束后再隐藏
+  m.addEventListener('animationend', () => m.classList.add('hidden'), { once: true });
+}
+$('mapDropdown').onclick = openMapModal;
+document.querySelectorAll('.map-mopt').forEach(btn => {
+  btn.onclick = () => { socket.emit('setMap', btn.dataset.map); closeMapModal(); };
+});
+$('mapModal').addEventListener('click', e => { if (e.target === $('mapModal')) closeMapModal(); });
 
 $('rsStartBtn').onclick = () => {
   // 浏览器要求全屏必须由用户点击触发，挂在"开始游戏"的点击上
@@ -556,25 +776,20 @@ $('fsBtn').onclick = () => {
 };
 
 /** 角色选择：4个头像，点击更换；显示每个角色被谁选用 */
-const CHAR_NAMES = ['轰侠', '影袭', '鹰眼', '疾风'];
-const CHAR_PASSIVES = [
-  '轰侠 · 被动：大范围爆炸 —— 炮弹爆炸半径+40%，基础伤害100%',
-  '影袭 · 被动：致命一击 —— 炮弹有15%几率造成150%伤害（可被强化B叠加），基础伤害100%',
-  '鹰眼 · 被动：追踪弹 —— 炮弹靠近敌人(150px内)时自动吸附，基础伤害75%',
-  '疾风 · 被动：三连发 —— 每次发射扇形射出三枚炮弹，每发伤害45%',
-];
+const CHAR_NAMES = () => [t('char_0'), t('char_1'), t('char_2'), t('char_3')];
+const CHAR_PASSIVES = () => [t('passive_0'), t('passive_1'), t('passive_2'), t('passive_3')];
 function renderCharPick(r) {
   const el = $('charPick');
   if (!el || r.state !== 'waiting') { if (el) el.innerHTML = ''; return; }
   el.innerHTML = '';
-  const takerOf = (idx) => r.players.filter(p => !p.spectator && (p.char || 0) === idx).map(p => p.name + (p.sid === socket.id ? '(你)' : ''));
+  const takerOf = (idx) => r.players.filter(p => !p.spectator && (p.char || 0) === idx).map(p => p.name + (p.sid === socket.id ? t('you') : ''));
   const myChar = (r.players.find(p => p.sid === socket.id) || {}).char || 0;
   for (let i = 0; i < CHARS.length; i++) {
     const div = document.createElement('div');
     div.className = 'cport' + (myChar === i ? ' mine' : '');
     const takers = takerOf(i).join('、');
-    div.setAttribute('data-tip', CHAR_PASSIVES[i]);
-    div.innerHTML = `<img src="${CHARS[i]}" alt="${CHAR_NAMES[i]}"><div class="pname">${CHAR_NAMES[i]}</div><div class="taker">${takers}</div>`;
+    div.setAttribute('data-tip', CHAR_PASSIVES()[i]);
+    div.innerHTML = `<img src="${CHARS[i]}" alt="${CHAR_NAMES()[i]}"><div class="pname">${CHAR_NAMES()[i]}</div><div class="taker">${takers}</div>`;
     div.onclick = () => {
       if (myChar !== i) socket.emit('setChar', i);
     };
@@ -603,6 +818,7 @@ $('leaveBtn').onclick = () => {
 socket.on('state', (st) => {
   // 仅在携带地形时重建纹理（首次加入/重赛）；常规同步不能恢复被破坏的地形
   if (st.terrain) {
+    mapMode = st.map === 'castle' ? 'castle' : 'random';
     terrain = Float32Array.from(st.terrain);
     platforms = st.platforms || [];
     buildTerrainTexture(terrain);
@@ -631,7 +847,7 @@ socket.on('turn', (t) => {
   if (animating) { flying = null; animating = false; }
   // 新回合开始意味着对局已在进行：收起胜负结算浮层（非房主不会触发rematch按钮，靠这里关闭）
   hideOverlay();
-  cardUsed = false; fBought = false; renderCards(); renderPoints(); // 注意：不清手牌，服务器在本回合开始时已发新牌
+  cardUsed = false; fBought = false; gBought = false; renderCards(); renderPoints(); // 注意：不清手牌，服务器在本回合开始时已发新牌
   if (curTurnSid === socket.id && !barCollapsedByUser) setBarCollapsed(true); // 自己的回合自动收起底栏
   $('timer').textContent = t.timeLeft;
   $('timer').classList.toggle('urgent', t.timeLeft <= 5);
@@ -664,7 +880,7 @@ socket.on('gameover', ({ winner }) => {
   if (isHost && !isSpectator) {
     const btn = document.createElement('button');
     btn.className = 'btn primary big';
-    btn.textContent = '再来一局';
+    btn.textContent = t('rematch');
     btn.onclick = () => { hideOverlay(); socket.emit('rematch'); };
     $('overlay').appendChild(btn);
   } else {
@@ -683,29 +899,32 @@ socket.on('msg', (m) => {
   if (m.text && m.text.includes('加入了房间')) SFX.play('join');
 });
 
-/* ---------- 聊天 ---------- */
-function sendChat() {
-  const t = $('chatInput').value.trim();
+/* ---------- 聊天（房间等待界面与游戏内共用，日志同步写入所有面板） ---------- */
+function sendChat(input) {
+  const t = input.value.trim();
   if (!t) return;
   if (t === 'iseeall') { // 作弊指令：切换碰撞体显示
     showColliders = !showColliders;
     addChat(null, `碰撞体显示：${showColliders ? '开' : '关'}`);
-    $('chatInput').value = '';
+    input.value = '';
     return;
   }
   socket.emit('chat', t);
-  $('chatInput').value = '';
+  input.value = '';
 }
-$('chatBtn').onclick = sendChat;
-$('chatInput').addEventListener('keydown', e => { if (e.key === 'Enter') sendChat(); });
+for (const [inp, btn] of [['chatInput', 'chatBtn'], ['rsChatInput', 'rsChatBtn']]) {
+  $(btn).onclick = () => sendChat($(inp));
+  $(inp).addEventListener('keydown', e => { if (e.key === 'Enter') sendChat($(inp)); });
+}
 
 function addChat(name, text) {
-  const log = $('chatLog');
   const div = document.createElement('div');
   if (name == null) { div.className = 'sys'; div.textContent = text; }
   else { div.innerHTML = `<b>${escapeHtml(name)}:</b> ${escapeHtml(text)}`; }
-  log.appendChild(div);
-  log.scrollTop = log.scrollHeight;
+  document.querySelectorAll('.chatLog').forEach(log => {
+    log.appendChild(div.cloneNode(true));
+    log.scrollTop = log.scrollHeight;
+  });
 }
 function escapeHtml(s) { return String(s).replace(/[<>&"]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c])); }
 
@@ -727,7 +946,8 @@ function toast(text) {
 
 document.addEventListener('keydown', (e) => {
   if (gameEl.classList.contains('hidden')) return;
-  if (document.activeElement === $('chatInput') || document.activeElement === $('nameInput')) return;
+  const ae = document.activeElement;
+  if (ae && (ae.id === 'chatInput' || ae.id === 'rsChatInput' || ae.id === 'nameInput')) return;
   const gameKey = ['KeyA', 'KeyD', 'KeyW', 'KeyS', 'Space', 'ArrowUp', 'ArrowDown'].includes(e.code);
   if (!myTurn()) {
     if (gameKey && !isSpectator && roomId) {
@@ -917,17 +1137,17 @@ function updateHUD() {
     for (const p of mates) {
       const row = document.createElement('div');
       row.className = 'hprow' + (team === 1 ? ' right' : '') + (p.alive ? '' : ' dead');
-      row.innerHTML = `<span class="hname">${escapeHtml(p.name)}${p.isYou ? '(你)' : ''}</span>` +
+      row.innerHTML = `<span class="hname">${escapeHtml(p.name)}${p.isYou ? t('you') : ''}</span>` +
         `<div class="hpbar"><div class="hpfill" style="width:${p.hp / 10}%;background:${p.alive ? 'linear-gradient(90deg,#43d96a,#a8e063)' : '#555'}"></div></div>`;
       rows.appendChild(row);
     }
-    if (!mates.length) rows.innerHTML = '<div class="hname">等待玩家…</div>';
+    if (!mates.length) rows.innerHTML = `<div class="hname">${t('waiting_players')}</div>`;
   }
   const w = Math.abs(wind).toFixed(1);
   $('windVal').textContent = w;
   $('windArrow').textContent = wind > 0.2 ? '→' : wind < -0.2 ? '←' : '·';
   const cur = active[curTurnSlot];
-  $('turnLabel').textContent = cur ? (cur.isYou ? '🎯 你的回合！' : `${cur.name} 行动中…`) : '等待玩家…';
+  $('turnLabel').textContent = cur ? (cur.isYou ? t('your_turn') : tf('acting', { n: cur.name })) : t('waiting_players');
   if (me) { angle = lastFiredAngle !== null ? lastFiredAngle : 45; power = 40; updateAimHud(); }
   renderCards();
   renderPoints();
@@ -965,6 +1185,7 @@ socket.on('shotBegin', (d) => {
 let boomMarks = []; // 爆炸落点标记（iseeall观察用）：{x,y,r,t,tag}
 socket.on('boomFx', (d) => {
   applyTerrainRuns(d.runs || []); // 命中瞬间立即显示该发弹坑
+  eraseBoomCircle(d.x, d.y, d.r); // 按完整圆域再擦一次：藤蔓叶片等无碰撞的装饰像素比mask宽，逐run擦会残留
   boomMarks.push({ x: d.x, y: d.y, r: d.r, t: 0, tag: d.tag || '' });
   explosions.push({ x: d.x, y: d.y, r: d.r, t: 0 });
   SFX.play('hit' + (flying ? flying.char || 0 : d.char || 0));
@@ -1081,22 +1302,15 @@ socket.on('cardPlayed', (d) => {
 });
 
 /* ---------- 积分强化面板 ---------- */
-const UPGRADES = [
-  { id: 'a', name: '强化A', cost: 50,  desc: '追加一个发射物(30%伤害,可暴击)' },
-  { id: 'b', name: '强化B', cost: 15,  desc: '暴击几率+8%' },
-  { id: 'c', name: '强化C', cost: 60,  desc: '所有发射物伤害+30%' },
-  { id: 'd', name: '强化D', cost: 25,  desc: '所有发射物伤害+20' },
-  { id: 'e', name: '强化E', cost: 35,  desc: '汲血:炮击伤害的30%转化为生命' },
-  { id: 'f', name: '强化F', cost: 30,  desc: '精准:不受距离衰减,边缘满伤害' },
-  { id: 'g', name: '强化G', cost: 80,  desc: '二次爆破:命中点二次爆炸(40%伤害)' },
-  { id: 's', name: '强化S', cost: 200, desc: '伤害+100%（蓄积两回合）' },
-];
+const UPGRADES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 's'].map(id => ({ id }));
+const UPG_COST = { a: 50, b: 15, c: 60, d: 25, e: 35, f: 30, g: 80, s: 200 };
 let fBought = false; // 强化F本回合已购买（一次性）
+let gBought = false; // 强化G本回合已购买（一次性）
 let lastPtsUsable = null;
 function renderPoints() {
   const pv = $('pointsVal'), list = $('upgList'), panel = $('pointsPanel');
   if (!pv || !list || !panel) return;
-  pv.textContent = '积分 ' + (me ? (me.points || 0) : 0);
+  pv.textContent = t('points') + ' ' + (me ? (me.points || 0) : 0);
   const usable = myTurn();
   // 状态切换时触发进入/退出动画
   if (usable !== lastPtsUsable) {
@@ -1108,15 +1322,16 @@ function renderPoints() {
   list.innerHTML = '';
   for (const u of UPGRADES) {
     const div = document.createElement('div');
-    const afford = me && (me.points || 0) >= u.cost;
-    const soldOut = u.id === 'f' && fBought;
+    const afford = me && (me.points || 0) >= UPG_COST[u.id];
+    const soldOut = (u.id === 'f' && fBought) || (u.id === 'g' && gBought);
     div.className = 'upg' + (usable && afford && !soldOut ? '' : ' disabled');
-    div.innerHTML = `<div class="uname"><span>${u.name}${soldOut ? '（已生效）' : ''}</span><span class="cost">${u.cost}</span></div><div class="udesc">${u.desc}</div>`;
+    div.innerHTML = `<div class="uname"><span>${t('upg_' + u.id)}${soldOut ? t('sold_out') : ''}</span><span class="cost">${UPG_COST[u.id]}</span></div><div class="udesc">${t('upg_' + u.id + '_d')}</div>`;
     if (usable && afford && !soldOut) {
       div.onmouseenter = () => SFX.play('upgHover'); // 仅可用卡片：悬停清脆咔哒
       div.onclick = () => {
         SFX.play('upgClick'); // 金铁点击声
         if (u.id === 'f') fBought = true;
+        if (u.id === 'g') gBought = true;
         socket.emit('buyUpgrade', u.id);
         renderPoints();
       };
@@ -1151,26 +1366,31 @@ function draw() {
   ctx.setTransform(RES, 0, 0, RES, 0, 0);
   ctx.save();
   applyCam();
-  // 天空（放大画布范围避免镜头移动露边）
-  const sky = ctx.createLinearGradient(0, 0, 0, H);
-  sky.addColorStop(0, '#5fb8f0'); sky.addColorStop(1, '#bfe6ff');
-  ctx.fillStyle = sky;
-  ctx.fillRect(cam.left - 50, cam.top - 50, W / cam.s + 100, H / cam.s + 100);
+  if (mapMode === 'castle' && castleBg.complete && castleBg.naturalWidth) {
+    // 城堡地图：整幅背景图（天空+远景城堡+远山），覆盖镜头可视区
+    ctx.drawImage(castleBg, 0, 0, W, H);
+  } else {
+    // 天空（放大画布范围避免镜头移动露边）
+    const sky = ctx.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, '#5fb8f0'); sky.addColorStop(1, '#bfe6ff');
+    ctx.fillStyle = sky;
+    ctx.fillRect(cam.left - 50, cam.top - 50, W / cam.s + 100, H / cam.s + 100);
 
-  // 云（基础漂移 + 随风速移动，风向决定漂移方向和快慢）
-  ctx.fillStyle = 'rgba(255,255,255,.8)';
-  for (const c of clouds) {
-    c.x += c.s * 0.15 + wind * 0.12 * c.s;
-    if (c.x > W + 80) c.x = -80;
-    if (c.x < -80) c.x = W + 80;
-    ctx.beginPath();
-    ctx.arc(c.x, c.y, 24, 0, 7); ctx.arc(c.x + 26, c.y + 6, 18, 0, 7); ctx.arc(c.x - 26, c.y + 8, 16, 0, 7);
-    ctx.fill();
+    // 云（基础漂移 + 随风速移动，风向决定漂移方向和快慢）
+    ctx.fillStyle = 'rgba(255,255,255,.8)';
+    for (const c of clouds) {
+      c.x += c.s * 0.15 + wind * 0.12 * c.s;
+      if (c.x > W + 80) c.x = -80;
+      if (c.x < -80) c.x = W + 80;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, 24, 0, 7); ctx.arc(c.x + 26, c.y + 6, 18, 0, 7); ctx.arc(c.x - 26, c.y + 8, 16, 0, 7);
+      ctx.fill();
+    }
+
+    // 太阳
+    ctx.fillStyle = '#ffe37e';
+    ctx.beginPath(); ctx.arc(1780, 130, 46, 0, 7); ctx.fill();
   }
-
-  // 太阳
-  ctx.fillStyle = '#ffe37e';
-  ctx.beginPath(); ctx.arc(1780, 130, 46, 0, 7); ctx.fill();
 
   // 地形（离屏画布，爆炸会实时擦除出圆形弹坑）
   ctx.drawImage(tcv, 0, 0);
@@ -1229,9 +1449,12 @@ function draw() {
       ctx.beginPath(); ctx.arc(ms.x, ms.y, 5, 0, 7); ctx.stroke();
     }
     for (const p of players.filter(q => !q.spectator && q.alive)) {
+      // 与drawTank的贴图旋转完全一致：θ = atan2(yb - ya, xb - xa)（canvas坐标系）
+      const dxa = Math.max(0, Math.min(W - 1, Math.round(p.x - 14)));
+      const dxb = Math.max(0, Math.min(W - 1, Math.round(p.x + 14)));
+      const dya = groundBelowLocal(dxa, p.y - 8), dyb = groundBelowLocal(dxb, p.y - 8);
+      const sl = (dya >= H || dyb >= H) ? 0 : Math.atan2(dyb - dya, dxb - dxa);
       const cH = 26;
-      const slDeg = slopeElevDeg(p) * (p.dir || 1);
-      const sl = slDeg * Math.PI / 180;
       const cx = p.x + Math.sin(sl) * cH, cy = p.y - Math.cos(sl) * cH;
       ctx.strokeStyle = 'rgba(80, 255, 120, .85)';
       ctx.beginPath(); ctx.arc(cx, cy, 20, 0, 7); ctx.stroke();
@@ -1435,7 +1658,7 @@ function drawTank(p) {
     rr(ctx, -30, -72, Math.max(6, 60 * (p.hp / 1000)), 7, 3.5); ctx.fill();
   }
   ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif'; ctx.textAlign = 'center';
-  ctx.fillText(p.name + (p.isYou ? '(你)' : ''), 0, -79);
+  ctx.fillText(p.name + (p.isYou ? t('you') : ''), 0, -79);
   // 当前回合标记
   const activeIdx = players.filter(q => !q.spectator).indexOf(p);
   if (activeIdx === curTurnSlot && roomId) {
@@ -1545,19 +1768,19 @@ $('mpYes').onclick = () => {
   SFX.setBgmOn(true);
   SFX.setBgm('lobby');
   $('musicPrompt').classList.add('hidden');
-  $('bgmBtn').textContent = '🔊 音乐';
+  $('bgmBtn').textContent = t('music_on');
 };
 $('mpNo').onclick = () => {
   SFX.setBgmOn(false);
   $('musicPrompt').classList.add('hidden');
-  $('bgmBtn').textContent = '🔇 静音';
+  $('bgmBtn').textContent = t('music_off');
 };
 
 // 背景音乐开关
 $('bgmBtn').onclick = () => {
   SFX.init();
   const on = SFX.toggleBgm();
-  $('bgmBtn').textContent = on ? '🔊 音乐' : '🔇 静音';
+  $('bgmBtn').textContent = on ? t('music_on') : t('music_off');
 };
 
 draw();

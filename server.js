@@ -77,7 +77,8 @@ app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.ht
 const rooms = new Map(); // roomId -> room
 const waitingQueue = []; // 快速匹配
 
-function genTerrain() {
+function genTerrain(map) {
+  if (map === 'castle') return genCastleTerrain();
   const h = new Float32Array(WORLD_W);
   const base = WORLD_H * 0.72;
   const a1 = 40 + Math.random() * 60, f1 = 0.004 + Math.random() * 0.003, p1 = Math.random() * 7;
@@ -90,13 +91,60 @@ function genTerrain() {
   return h;
 }
 
+/** 城堡地图：中央石制城堡（前景可破坏），两侧平缓草地质供两队出生 */
+function genCastleTerrain() {
+  const h = new Float32Array(WORLD_W);
+  const base = WORLD_H * 0.78; // 平地
+  for (let x = 0; x < WORLD_W; x++) {
+    // 平缓地面起伏（±10），保持出生区平坦
+    const t = Math.sin(x * 0.006) * 8 + Math.sin(x * 0.021 + 2) * 4;
+    h[x] = base + t;
+  }
+  // 城齿垛口：从结构左缘起，每周期=垛墙宽28 + 垛口宽16，缺口下凹depth（两端都是实体垛墙）
+  const crenel = (x, x0, top, depth) => {
+    const m = (x - x0) % 44;
+    return top + (m >= 28 ? depth : 0);
+  };
+  const seg = (x0, x1, fn) => { for (let x = Math.max(0, x0); x <= Math.min(WORLD_W - 1, x1); x++) h[x] = Math.min(h[x], fn(x)); };
+  // 左塔 / 右塔：垂直塔身 + 垛口顶
+  seg(790, 950, x => crenel(x, 790, 390, 18));
+  seg(1210, 1370, x => crenel(x, 1210, 390, 18));
+  // 中央主堡（更高，垛口稍深）
+  seg(990, 1170, x => crenel(x, 990, 300, 20));
+  // 连接城墙（低于塔顶，窄垛口）
+  seg(950, 990, x => crenel(x, 950, 560, 14));
+  seg(1170, 1210, x => crenel(x, 1170, 560, 14));
+  return h;
+}
+
+/** 城堡藤蔓：挂在垛口缺口下沿的波状细条（可破坏，阻挡炮弹）。
+    位置与 genCastleTerrain 的城齿周期一致：缺口位于 x0+k*44+28 起的16px内 */
+function genVines() {
+  const vines = [];
+  // [结构左缘x0, 结构右缘, 垛口缺口底y]，与 genCastleTerrain 保持一致
+  const structs = [
+    [790, 950, 408], [990, 1170, 320], [1210, 1370, 408], // 左塔 / 主堡 / 右塔
+    [950, 990, 574], [1170, 1210, 574],                    // 连接城墙
+  ];
+  for (const [x0, x1, yTop] of structs) {
+    for (let x = x0 + 28; x < x1 - 4; x += 44) {
+      if (Math.random() < 0.45) continue; // 不铺满，留出疏密
+      const cx = x + 8 + (Math.random() - 0.5) * 6;  // 缺口中心附近
+      const h = 50 + Math.floor(Math.random() * 90); // 50~140px
+      vines.push({ shape: 'vine', x: Math.round(cx - 6), y: yTop, w: 12, h, phase: Math.random() * 6.28 });
+    }
+  }
+  return vines;
+}
+
 function groundY(terrain, x) {
   x = Math.max(0, Math.min(WORLD_W - 1, Math.round(x)));
   return terrain[x];
 }
 
-/** 随机生成空中平台（可阻挡炮弹，也能承接落下的角色） */
-function genPlatforms() {
+/** 随机生成空中平台（可阻挡炮弹，也能承接落下的角色）；城堡地图：垛口下挂藤蔓（可破坏） */
+function genPlatforms(map) {
+  if (map === 'castle') return genVines();
   const plats = [];
   const n = 2 + Math.floor(Math.random() * 2); // 2~3 个
   for (let i = 0; i < n; i++) {
@@ -127,6 +175,13 @@ function buildMask(terrain, platforms) {
       for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
         const nx = (x + 0.5 - cx) / rx, ny = (y + 0.5 - cy) / ry;
         if (nx * nx + ny * ny <= 1) m[y * WORLD_W + x] = 1;
+      }
+    } else if (pf.shape === 'vine') {
+      // 波状藤干：中心线随深度正弦摆动，实体为4px宽芯（叶片不参与碰撞）
+      const cx = pf.x + pf.w / 2;
+      for (let y = y0; y <= y1; y++) {
+        const xc = Math.round(cx + Math.sin((y - pf.y) * 0.08 + (pf.phase || 0)) * 4);
+        for (let x = Math.max(0, xc - 2); x <= Math.min(WORLD_W - 1, xc + 2); x++) m[y * WORLD_W + x] = 1;
       }
     } else {
       for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) m[y * WORLD_W + x] = 1;
@@ -193,6 +248,7 @@ function createRoom(name, pve) {
   const room = {
     id: name || ('R' + Math.random().toString(36).slice(2, 7).toUpperCase()),
     terrain: genTerrain(),
+    map: 'random',        // 地图：random 随机 | castle 城堡（房主可切换，开局时按此生成）
     mask: null,           // 2D 实心网格（可破坏地形的碰撞与挖掘依据）
     mode: pve ? 'pve' : 'pvp',
     monsters: [],         // PVE：小兵与Boss
@@ -209,7 +265,7 @@ function createRoom(name, pve) {
     bossShot: null, bossShotTimer: null,
     createdAt: Date.now(),
   };
-  room.platforms = genPlatforms();
+  room.platforms = genPlatforms(room.map);
   room.mask = buildMask(room.terrain, room.platforms);
   rooms.set(room.id, room);
   return room;
@@ -222,10 +278,10 @@ function spawnMonsters(room) {
   room.monsters = [];
   for (let i = 0; i < n; i++) {
     const x = Math.min(WORLD_W - 100, 1100 + i * 150 + Math.random() * 40);
-    room.monsters.push({ id: 'm' + i, kind: 'minion', x, y: 0, hp: 450, maxHp: 450, dmg: 60, speed: 30, range: 45, r: 15.6, alive: true });
+    room.monsters.push({ id: 'm' + i, kind: 'minion', x, y: 0, hp: 450, maxHp: 450, dmg: 60, speed: 30, range: 45, r: 19.5, alive: true });
   }
   const bx = Math.min(WORLD_W - 100, 1160 + n * 150);
-  room.monsters.push({ id: 'boss', kind: 'boss', x: bx, y: 0, hp: 1800, maxHp: 1800, dmg: 130, speed: 18, range: 60, r: 28.6, alive: true, spawnCount: 0 });
+  room.monsters.push({ id: 'boss', kind: 'boss', x: bx, y: 0, hp: 1800, maxHp: 1800, dmg: 130, speed: 18, range: 60, r: 35.75, alive: true, spawnCount: 0 });
   for (const m of room.monsters) m.y = groundY(room.terrain, m.x); // 出生在地面（平台由重力系统按需承接）
   broadcast(room, 'monsters', { monsters: room.monsters });
 }
@@ -265,7 +321,7 @@ function bossSpawnShot(room, boss) {
       clearInterval(room.bossShotTimer);
       room.bossShotTimer = null;
       room.bossShot = null;
-      const minion = { id, kind: 'minion', x: Math.round(s.x), y: gy, hp: 200, maxHp: 200, dmg: 40, speed: 30, range: 45, r: 10, alive: true };
+      const minion = { id, kind: 'minion', x: Math.round(s.x), y: gy, hp: 200, maxHp: 200, dmg: 40, speed: 30, range: 45, r: 12.5, alive: true };
       room.monsters.push(minion);
       broadcast(room, 'minionShotEnd', { id, minion });
       broadcast(room, 'monsters', { monsters: room.monsters });
@@ -394,6 +450,7 @@ function broadcastRoom(room) {
     id: room.id,
     state: room.state,
     mode: room.mode,
+    map: room.map,
     hostSid: room.hostSid,
     players: room.players.map(p => ({ sid: p.sid, name: p.name, spectator: p.spectator, team: p.team, char: p.char || 0 })),
   });
@@ -410,6 +467,7 @@ function publicRoom(room, forSid, withTerrain) {
     id: room.id,
     state: room.state,
     mode: room.mode,
+    map: room.map,
     wind: room.wind,
     turn: room.turn,
     timeLeft: room.timeLeft,
@@ -763,7 +821,7 @@ function fire(room, shooter) {
   const HOMING_R = 150;
   const spread = ch === 3 ? [-0.14, 0, 0.14] : [0];
 
-  // 强化A：每级追加一个发射物（50%伤害，可暴击）
+  // 强化A：每级追加一个发射物（30%伤害，可暴击）
   const shotDefs = spread.map(off => ({ off, factor: 1 }));
   for (let i = 0; i < (shooter.extraShots || 0); i++) {
     shotDefs.push({ off: 0.06 * Math.ceil((i + 1) / 2) * (i % 2 === 0 ? -1 : 1), factor: 0.3 });
@@ -857,7 +915,7 @@ function fire(room, shooter) {
   const impact = (s) => {
     s.done = true;
     const ex = s.x, ey = s.y;
-    const res = explodeAt(ex, ey, expR, 1);
+    const res = explodeAt(ex, ey, expR, s.factor || 1);
     lsGain += res.sum;
     explosions.push({ x: +ex.toFixed(1), y: +ey.toFixed(1), r: expR, tag: '' });
     broadcast(room, 'boomFx', {
@@ -1116,6 +1174,10 @@ io.on('connection', (socket) => {
     const need = room.mode === 'pve' ? 1 : 2; // PVE单人即可开局
     if (active.length < need) { socket.emit('err', room.mode === 'pve' ? '等待玩家加入' : '至少需要2名玩家才能开始'); return; }
     room.state = 'playing';
+    // 按房主选择的地图重新生成地形（等待期间可能切换过）
+    room.terrain = genTerrain(room.map);
+    room.platforms = genPlatforms(room.map);
+    room.mask = buildMask(room.terrain, room.platforms);
     const qi = waitingQueue.indexOf(room.id);
     if (qi >= 0) waitingQueue.splice(qi, 1);
     room.turn = Math.floor(Math.random() * active.length);
@@ -1123,8 +1185,21 @@ io.on('connection', (socket) => {
     if (room.mode === 'pve') spawnMonsters(room);
     startGravity(room);
     broadcastRoom(room);
-    broadcastState(room);
+    broadcastState(room, true); // 开局重生成地形（等待期可能切换地图），需携带
     setTimeout(() => startTurn(room), 1000);
+  });
+
+  // 房主在等待界面切换地图
+  socket.on('setMap', (v) => {
+    if (!curRoom) return;
+    if (curRoom.hostSid !== socket.id) { socket.emit('err', '只有房主才能切换地图'); return; }
+    if (curRoom.state !== 'waiting') return;
+    v = v === 'castle' ? 'castle' : 'random';
+    if (curRoom.map === v) return;
+    curRoom.map = v;
+    broadcast(curRoom, 'msg', { sys: true, text: v === 'castle' ? '🏰 房主选择了城堡地图' : '🎲 房主选择了随机地图' });
+    broadcastRoom(curRoom);
+    broadcastState(curRoom);
   });
 
   function leaveRoom() {
@@ -1262,7 +1337,9 @@ io.on('connection', (socket) => {
       case 's': me.dmgPct += 1.0; break;
       case 'e': me.lifesteal = (me.lifesteal || 0) + 0.3; break;
       case 'f': me.pierceEdge = true; break;
-      case 'g': me.doubleBoom = true; break;
+      case 'g':
+        if (me.doubleBoom) { socket.emit('err', '强化G已生效，不能重复购买'); return; }
+        me.doubleBoom = true; break;
     }
     broadcast(room, 'msg', { sys: true, text: `🛒 ${me.name} 购买了 ${u.name}（-${u.cost} 积分）` });
     broadcastState(room);
@@ -1279,8 +1356,8 @@ io.on('connection', (socket) => {
     const room = curRoom;
     if (room.hostSid !== socket.id) { socket.emit('err', '只有房主才能开始新一局'); return; }
     if (room.state !== 'over') return;
-    room.terrain = genTerrain();
-    room.platforms = genPlatforms();
+    room.terrain = genTerrain(room.map);
+    room.platforms = genPlatforms(room.map);
     room.mask = buildMask(room.terrain, room.platforms);
     for (const p of room.players) {
       p.hp = MAX_HP; p.alive = true; p.angle = 45; p.power = 40; p.moveBudget = MOVE_BUDGET; p.fired = false;

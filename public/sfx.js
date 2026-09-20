@@ -1,6 +1,7 @@
-/* 音效模块：Web Audio 合成 MIDI 风格音效与循环BGM（无外部音频文件） */
+/* 音效模块：Web Audio 合成音效 + 音频文件BGM（无外部音频文件的音效部分） */
 const SFX = (() => {
-  let ctx = null, bgmOn = false, bgmTimer = null, step = 0, bgmStyle = 'lobby'; // 默认关闭，由开场的音乐询问决定
+  let ctx = null, bgmOn = false, bgmStyle = 'lobby'; // 默认关闭，由开场的音乐询问决定
+  let muted = false; // 总静音：关闭后所有BGM与音效均不发声，仅由界面按钮重新开启
 
   function ac() {
     if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -10,6 +11,7 @@ const SFX = (() => {
 
   // 单音：freq频率 dur时长 type波形 vol音量 when延迟 slide滑音
   function tone(freq, dur, type = 'square', vol = 0.12, when = 0, slide = 0) {
+    if (muted) return;
     const c = ac();
     const o = c.createOscillator(), g = c.createGain();
     o.type = type;
@@ -24,6 +26,7 @@ const SFX = (() => {
 
   // 噪声：爆炸/打击
   function noise(dur, vol = 0.3, when = 0) {
+    if (muted) return;
     const c = ac();
     const len = Math.floor(c.sampleRate * dur);
     const buf = c.createBuffer(1, len, c.sampleRate);
@@ -39,6 +42,7 @@ const SFX = (() => {
 
   // 播放一次性音频文件
   function sample(src, vol = 0.55) {
+    if (muted) return;
     try {
       const a = new Audio(src);
       a.volume = vol;
@@ -48,12 +52,9 @@ const SFX = (() => {
 
   const fx = {
     click()   { tone(880, .06, 'square', .07); },
-    shoot()   { tone(320, .3, 'sawtooth', .13, 0, -270); },
-    explode() { noise(.55, .35); tone(90, .45, 'triangle', .22, 0, -55); },
     charge()  { tone(220, .12, 'square', .07); },
     tick()    { tone(1200, .05, 'square', .08); },
     turn()    { tone(660, .09, 'square', .1); tone(880, .13, 'square', .1, .1); },
-    hit()     { tone(150, .16, 'square', .18, 0, -85); },
     attack()  { tone(120, .2, 'sawtooth', .16, 0, -60); noise(.12, .12); },
     kill()    { tone(523, .08, 'square', .12); tone(659, .08, 'square', .12, .08); tone(784, .16, 'square', .12, .16); },
     join()    { tone(587, .08, 'square', .08); tone(880, .1, 'square', .08, .08); },
@@ -72,91 +73,6 @@ const SFX = (() => {
     lose()    { sample('/sound/defeat.m4a'); },    // 战败音效（音频文件）
   };
 
-  // 钢琴音色：多层正弦泛音 + 指数衰减
-  function piano(freq, dur, vol = 0.09, when = 0) {
-    const c = ac();
-    [[1, 1], [2, 0.4], [3, 0.14], [4.01, 0.06]].forEach(([mult, amp]) => {
-      const o = c.createOscillator(), g = c.createGain();
-      o.type = 'sine';
-      o.frequency.setValueAtTime(freq * mult, c.currentTime + when);
-      g.gain.setValueAtTime(vol * amp, c.currentTime + when);
-      g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + when + dur);
-      o.connect(g); g.connect(c.destination);
-      o.start(c.currentTime + when);
-      o.stop(c.currentTime + when + dur + 0.05);
-    });
-  }
-
-  // BGM：钢琴曲 —— 卡农式和弦分解（C-G-Am-Em-F-C-F-G），低音铺底
-  const CHORDS = [
-    [261.63, 329.63, 392.00, 523.25], // C
-    [392.00, 493.88, 587.33, 783.99], // G
-    [440.00, 523.25, 659.25, 880.00], // Am
-    [329.63, 392.00, 493.88, 659.25], // Em
-    [349.23, 440.00, 523.25, 698.46], // F
-    [261.63, 329.63, 392.00, 523.25], // C
-    [349.23, 440.00, 523.25, 698.46], // F
-    [392.00, 493.88, 587.33, 783.99], // G
-  ];
-  const ARP = [0, 1, 2, 3, 2, 1, 2, 3]; // 分解和弦指法
-
-  // 大厅BGM：钢琴卡农（舒缓）
-  function bgmStepLobby() {
-    if (!bgmOn || !ctx) return;
-    try {
-      const bar = Math.floor(step / ARP.length) % CHORDS.length;
-      const chord = CHORDS[bar];
-      const note = chord[ARP[step % ARP.length]];
-      piano(note, 1.4, 0.07);                    // 旋律分解音
-      if (step % ARP.length === 0) {
-        piano(chord[0] / 2, 2.2, 0.05);          // 低音根音
-        noise(.03, .02);                          // 轻节拍
-      }
-      step++;
-    } catch (e) { /* ignore */ }
-  }
-
-  // 小提琴声部：三把轻微失谐的锯齿波叠成弦乐合奏，慢起音+弓感衰减
-  function violin(freq, dur, vol = 0.055, when = 0) {
-    const c = ac();
-    [1, 1.006, 0.994].forEach((det, i) => {
-      const o = c.createOscillator(), g = c.createGain();
-      o.type = 'sawtooth';
-      o.frequency.setValueAtTime(freq * det, c.currentTime + when);
-      g.gain.setValueAtTime(0.0001, c.currentTime + when);
-      g.gain.linearRampToValueAtTime(vol * (i === 0 ? 1 : 0.55), c.currentTime + when + 0.03); // 起弓
-      g.gain.setValueAtTime(vol * (i === 0 ? 1 : 0.55), c.currentTime + when + dur * 0.65);    // 运弓保持
-      g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + when + dur);                  // 收弓
-      o.connect(g); g.connect(c.destination);
-      o.start(c.currentTime + when);
-      o.stop(c.currentTime + when + dur + 0.05);
-    });
-  }
-  const midi = (m) => 440 * Math.pow(2, (m - 69) / 12);
-
-  // PVE战斗BGM：昂扬的小提琴主旋律 + 弦乐固定音型伴奏 + 打击乐
-  const LEAD = [
-    69, 0, 72, 0,  76, 0, 77, 76,   74, 0, 72, 0,  74, 76, 74, 72,
-    77, 0, 76, 0,  81, 0, 79, 77,   76, 0, 74, 0,  72, 0, 69, 0,
-  ];
-  const OST = [
-    45, 57, 45, 57,  52, 64, 52, 64,  41, 53, 41, 53,  43, 55, 43, 55,
-  ];
-  function bgmStepBattle() {
-    if (!bgmOn || !ctx) return;
-    try {
-      const c32 = step % 32, c16 = step % 16;
-      const lead = LEAD[c32];
-      if (lead && LEAD[(c32 + 1) % 32] === 0) violin(midi(lead), 0.34, 0.06);       // 长音拉弓
-      else if (lead) violin(midi(lead), 0.16, 0.05);                                 // 短促断奏
-      violin(midi(OST[c16]) / 2, 0.13, 0.028);                                       // 弦乐伴奏固定音型
-      if (c16 % 8 === 0) { tone(90, .1, 'triangle', .2, 0, -50); noise(.06, .1); }   // 底鼓
-      else if (c16 % 8 === 4) { noise(.08, .12); tone(200, .04, 'square', .04); }    // 军鼓
-      noise(.02, .03);                                                               // 闭镲
-      step++;
-    } catch (e) { /* ignore */ }
-  }
-
   // BGM：使用音频文件循环播放（lobby/battle两套）
   const bgmFiles = {
     lobby:  '/sound/bgm_lobby.mp3',
@@ -173,7 +89,7 @@ const SFX = (() => {
     return bgmEls[style];
   }
   function playBgm() {
-    if (!bgmOn) return;
+    if (!bgmOn || muted) return;
     Object.entries(bgmEls).forEach(([k, a]) => { if (k !== bgmStyle) { try { a.pause(); } catch (e) {} } });
     const a = bgmEl(bgmStyle);
     if (a.paused) a.play().catch(() => {}); // 幂等：已在播放则不重播
@@ -185,6 +101,7 @@ const SFX = (() => {
   // 蓄力音：持续振荡器，音调随蓄力进度上升
   let chargeOsc = null, chargeGain = null;
   function startChargeSound() {
+    if (muted) return;
     const c = ac();
     stopChargeSound();
     chargeOsc = c.createOscillator(); chargeGain = c.createGain();
@@ -226,8 +143,8 @@ const SFX = (() => {
       playBgm();
     },
     play(n) { try { fx[n] && fx[n](); } catch (e) { /* ignore */ } },
-    toggleBgm() { bgmOn = !bgmOn; if (bgmOn) playBgm(); else stopBgmAudio(); return bgmOn; },
-    /** 直接设置音乐开关（不翻转） */
-    setBgmOn(v) { bgmOn = v; if (v) playBgm(); else stopBgmAudio(); },
+    toggleBgm() { bgmOn = !bgmOn; muted = !bgmOn; if (bgmOn) playBgm(); else stopBgmAudio(); return bgmOn; },
+    /** 直接设置音乐开关（不翻转）：关闭时同时总静音全部音效 */
+    setBgmOn(v) { bgmOn = v; muted = !v; if (v) playBgm(); else stopBgmAudio(); },
   };
 })();
