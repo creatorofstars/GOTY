@@ -938,7 +938,7 @@ socket.on('gameover', ({ winner }) => {
     }
   };
   // 胜利播放 Win Sequence，失败播放 defeat sequence，播完后显示胜/负结算
-  playEndingVideo(iWon ? '/video/win_sequence.mp4' : '/video/defeat_sequence.mp4', showResult);
+  playEndingVideo(iWon ? 'video/win_sequence.mp4' : 'video/defeat_sequence.mp4', showResult);
 });
 
 socket.on('msg', (m) => {
