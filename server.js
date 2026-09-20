@@ -76,6 +76,9 @@ app.use(express.static(path.join(__dirname, 'landing-page')));
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'landing-page', 'index.html')));
 app.get('/game', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+// 开场动画页：播放 intro 视频后进入 /game
+app.get('/intro', (req, res) => res.sendFile(path.join(__dirname, 'public', 'intro.html')));
+app.use('/opening-video', express.static(path.join(__dirname, 'opening-video')));
 
 const rooms = new Map(); // roomId -> room
 const sessions = new Map(); // 会话令牌 -> roomId（掉线重连用：玩家对象上存 token）

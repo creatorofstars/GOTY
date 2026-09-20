@@ -52,44 +52,6 @@
   sections.forEach(s => spy.observe(s));
 })();
 
-// ---------- opening video → game lobby ----------
-(function () {
-  const GAME_URL = 'https://goty--creatorofstars.replit.app/';
-  const overlay = document.getElementById('openingOverlay');
-  const video = document.getElementById('openingVideo');
-  const skip = document.getElementById('openingSkip');
-  if (!overlay || !video || !skip) return;
-
-  let done = false;
-  function goToGame() {
-    if (done) return;
-    done = true;
-    window.location.href = GAME_URL;
-  }
-
-  function playOpening() {
-    document.body.classList.add('opening-playing');
-    overlay.hidden = false;
-    try { video.currentTime = 0; } catch (e) { /* not loaded yet */ }
-    const p = video.play();
-    if (p && p.catch) p.catch(goToGame); // playback blocked/failed → straight to the game
-  }
-
-  video.addEventListener('ended', goToGame);
-  video.addEventListener('error', goToGame, true);
-  skip.addEventListener('click', goToGame);
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape' && !overlay.hidden) goToGame();
-  });
-
-  document.querySelectorAll('a.play-btn').forEach(a => {
-    a.addEventListener('click', e => {
-      e.preventDefault();
-      playOpening();
-    });
-  });
-})();
-
 // ---------- mobile menu ----------
 (function () {
   const btn = document.querySelector('.menu-btn');
