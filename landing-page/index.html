@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Caveat+Brush&family=Nunito:ital,wght@0,400;0,600;0,700;0,800;1,400;1,700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=8">
+<link rel="stylesheet" href="css/style.css?v=9">
 </head>
 <body>
 
@@ -26,7 +26,7 @@
     <a href="#how">Features</a>
   </nav>
 
-  <a class="btn btn-nav" href="/game"><span class="btn-star" aria-hidden="true">★</span>Play Now</a>
+  <a class="btn btn-nav play-btn" href="https://goty--creatorofstars.replit.app/" target="_blank" rel="noopener"><span class="btn-star" aria-hidden="true">★</span>Play Now</a>
 
   <button class="menu-btn" aria-label="Toggle menu" aria-expanded="false">
     <span></span><span></span><span></span>
@@ -38,7 +38,7 @@
     <h1 class="reveal in"><span>One Star.</span><br><span>Two Kingdoms.</span><br><span>Four Adventurers.</span></h1>
     <p class="hero-lead reveal in">The Heart Star is fading, and the world is losing its magic.
       Two adventurers. One Star Fragment. Only one can become the Guardian of the Star.</p>
-    <a class="btn btn-big reveal in" href="/game"><span class="btn-star" aria-hidden="true">★</span>Play Now</a>
+    <a class="btn btn-big reveal in play-btn" href="https://goty--creatorofstars.replit.app/" target="_blank" rel="noopener"><span class="btn-star" aria-hidden="true">★</span>Play Now</a>
   </div>
   <div class="hero-shade" aria-hidden="true"></div>
 </section>
@@ -145,13 +145,18 @@
       <img class="cta-crystal" src="assets/footer-crystal.jpg" alt="" aria-hidden="true">
       <div>
         <p class="script cta-line">Ready to become<br>the Guardian?</p>
-        <a class="btn" href="/game"><span class="btn-star" aria-hidden="true">★</span>Play The Last Star</a>
+        <a class="btn play-btn" href="https://goty--creatorofstars.replit.app/" target="_blank" rel="noopener"><span class="btn-star" aria-hidden="true">★</span>Play The Last Star</a>
       </div>
     </div>
 
   </div>
   <p class="fineprint">© 2026 The Last Star · A cozy 1v1 tactical adventure</p>
 </footer>
+
+<div class="opening-overlay" id="openingOverlay" hidden>
+  <video id="openingVideo" src="../opening-video/very%20final%20opening%20game%20intro%20-%20compressed%20x2.mp4" preload="none" playsinline></video>
+  <button class="opening-skip" id="openingSkip" type="button">Skip intro ›</button>
+</div>
 
 <script src="js/main.js?v=2"></script>
 </body>
