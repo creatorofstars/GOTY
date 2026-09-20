@@ -1708,7 +1708,7 @@ function drawTank(p) {
   rr(ctx, -30, -72, 60, 7, 3.5); ctx.fill();
   if (p.hp > 0) {
     ctx.fillStyle = '#43d96a';
-    rr(ctx, -30, -72, Math.max(6, 60 * (p.hp / 1000)), 7, 3.5); ctx.fill();
+    rr(ctx, -30, -72, Math.max(6, 60 * (p.hp / 1500)), 7, 3.5); ctx.fill();
   }
   // 护盾血条：位于头顶血条上方（有护盾时才显示），名字相应再上移
   if (p.shield > 0) {

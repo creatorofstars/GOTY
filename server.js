@@ -21,7 +21,7 @@ const WORLD_H = 1080;
 const GRAVITY = 0.28;
 const TURN_TIME = 20;          // 秒
 const MAX_POWER = 160;
-const MAX_HP = 1000;
+const MAX_HP = 1500;
 const TANK_R = 14;             // 命中半径
 const EXPLODE_R = 55;          // 爆炸半径
 const MAX_DMG = 320;           // 中心最大伤害
@@ -40,12 +40,12 @@ function randomName() {
 
 /** 卡牌定义：每回合发3张，每回合限打1张（不消耗开火机会） */
 const CARDS = {
-  heal:      { id: 'heal',      emoji: '💚', name: 'Healing',       desc: '恢复200点生命' },
+  heal:      { id: 'heal',      emoji: '💚', name: 'Healing',       desc: '恢复150点生命' },
   shield:    { id: 'shield',    emoji: '🛡️', name: 'Mini Shield',   desc: '获得护盾，格挡150点伤害（周身淡蓝护盾特效）' },
-  double:    { id: 'double',    emoji: '💥', name: 'Double Trouble',desc: '炮弹额外造成200点真实伤害（不受任何加成影响）' },
+  double:    { id: 'double',    emoji: '💥', name: 'Double Trouble',desc: '炮弹额外造成100点真实伤害（不受任何加成影响）' },
   revenge:   { id: 'revenge',   emoji: '🎯', name: 'Revenge',       desc: '下一次炮击伤害+100' },
   poison:    { id: 'poison',    emoji: '☠️', name: 'Poison',        desc: '炮弹命中的目标受100点毒伤，之后每回合50点毒伤，共2回合' },
-  bloodpact: { id: 'bloodpact', emoji: '🏹', name: 'Blood Pact',    desc: '炮弹额外造成400点真实伤害；消耗200生命（最低保留1点）；仅能使用一次' },
+  bloodpact: { id: 'bloodpact', emoji: '🏹', name: 'Blood Pact',    desc: '炮弹额外造成200点真实伤害；消耗125生命（最低保留1点）；仅能使用一次' },
   berserk:   { id: 'berserk',   emoji: '🔥', name: 'Berserk',       desc: '3回合内炮击伤害+80' },
   fortress:  { id: 'fortress',  emoji: '🏰', name: 'Fortress',      desc: '3回合内受到的伤害降低25%' },
 };
@@ -71,8 +71,11 @@ function drawCards(p) {
   return hand.map(id => CARDS[id]);
 }
 
+// 官网落地页挂在根路径（其 css/js 资源目录与 public 不冲突），游戏大厅挂 /game
+app.use(express.static(path.join(__dirname, 'landing-page')));
 app.use(express.static(path.join(__dirname, 'public')));
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'landing-page', 'index.html')));
+app.get('/game', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 const rooms = new Map(); // roomId -> room
 const sessions = new Map(); // 会话令牌 -> roomId（掉线重连用：玩家对象上存 token）
@@ -684,7 +687,7 @@ function applyCard(room, p, id) {
   const ename = enemy ? (enemy.kind ? (enemy.kind === 'boss' ? '👹Boss' : '👾小兵') : enemy.name) : '';
   switch (id) {
     case 'heal':
-      p.hp = Math.min(MAX_HP, p.hp + 200);
+      p.hp = Math.min(MAX_HP, p.hp + 150);
       broadcast(room, 'msg', { sys: true, text: `💚 ${p.name} 恢复了 200 生命（${p.hp}）` });
       break;
     case 'shield':
@@ -692,8 +695,8 @@ function applyCard(room, p, id) {
       broadcast(room, 'msg', { sys: true, text: `🛡️ ${p.name} 获得护盾（可格挡 ${p.shield} 伤害）` });
       break;
     case 'double':
-      p.trueDmg = (p.trueDmg || 0) + 200;
-      broadcast(room, 'msg', { sys: true, text: `💥 ${p.name} 的下一次炮击将额外造成 200 点真实伤害（不受任何加成影响）` });
+      p.trueDmg = (p.trueDmg || 0) + 100;
+      broadcast(room, 'msg', { sys: true, text: `💥 ${p.name} 的下一次炮击将额外造成 100 点真实伤害（不受任何加成影响）` });
       break;
     case 'revenge':
       p.revenge = true;
@@ -704,10 +707,10 @@ function applyCard(room, p, id) {
       broadcast(room, 'msg', { sys: true, text: `☠️ ${p.name} 的下一次炮弹命中将涂毒：目标 100 毒伤，之后每回合 50 共 2 回合` });
       break;
     case 'bloodpact':
-      p.trueDmg = (p.trueDmg || 0) + 400;
+      p.trueDmg = (p.trueDmg || 0) + 200;
       p.bloodUsed = true; // 一次性卡：用后不再出现在手牌
-      p.hp = Math.max(1, p.hp - 200); // 生命不足时保留1点
-      broadcast(room, 'msg', { sys: true, text: `🏹 ${p.name} 签订血契：下一次炮击额外 400 真实伤害，消耗 200 生命（剩余 ${p.hp}）` });
+      p.hp = Math.max(1, p.hp - 125); // 生命不足时保留1点
+      broadcast(room, 'msg', { sys: true, text: `🏹 ${p.name} 签订血契：下一次炮击额外 200 真实伤害，消耗 125 生命（剩余 ${p.hp}）` });
       break;
     case 'berserk':
       p.berserk = 3;
