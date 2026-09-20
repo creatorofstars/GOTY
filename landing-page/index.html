@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Last Star — One Star. Two Kingdoms. Four Adventurers.</title>
+<meta name="description" content="The Heart Star is fading. Choose your fighter, draw your spell cards and battle to become the Guardian of the Star in this 1v1 turn-based adventure.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23ffc63f' d='M12 1.5l3 6.6 7.2.8-5.4 4.9 1.5 7.1L12 17.3l-6.3 3.6 1.5-7.1L1.8 8.9l7.2-.8z'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Caveat+Brush&family=Nunito:ital,wght@0,400;0,600;0,700;0,800;1,400;1,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css?v=8">
+</head>
+<body>
+
+<header class="site-nav" id="top">
+  <a class="logo" href="#top" aria-label="The Last Star — home">
+    <span class="logo-the">The</span>
+    <span class="logo-main">Last<span class="logo-star" aria-hidden="true">★</span>Star</span>
+  </a>
+
+  <nav class="nav-links" aria-label="Main navigation">
+    <a href="#top" class="active">Home</a>
+    <a href="#fighters">Characters</a>
+    <a href="#story">Story</a>
+    <a href="#how">Features</a>
+  </nav>
+
+  <a class="btn btn-nav" href="#play"><span class="btn-star" aria-hidden="true">★</span>Play Now</a>
+
+  <button class="menu-btn" aria-label="Toggle menu" aria-expanded="false">
+    <span></span><span></span><span></span>
+  </button>
+</header>
+
+<section class="hero">
+  <div class="hero-inner">
+    <h1 class="reveal in"><span>One Star.</span><br><span>Two Kingdoms.</span><br><span>Four Adventurers.</span></h1>
+    <p class="hero-lead reveal in">The Heart Star is fading, and the world is losing its magic.
+      Two adventurers. One Star Fragment. Only one can become the Guardian of the Star.</p>
+    <a class="btn btn-big reveal in" href="#play"><span class="btn-star" aria-hidden="true">★</span>Play Now</a>
+  </div>
+  <div class="hero-shade" aria-hidden="true"></div>
+</section>
+
+<main class="panel">
+  <div class="panel-inner">
+
+    <figure class="story-img reveal">
+      <img src="assets/story-heart.jpg" alt="The Heart Star, the crystal source of all magic" width="390" height="352">
+    </figure>
+
+    <div class="story-text reveal" id="story">
+      <h2 class="heading">The Story</h2>
+        <p>Long ago, the world was protected by the Heart Star — a magical source
+           of energy that kept the world's magic alive.</p>
+        <p>Now, it's disappearing. The only way to restore it is through the
+           last Star Fragment.</p>
+        <p>Only the strongest warrior may carry the Star Fragment to save
+           the world.</p>
+        <p>Two adventurers, one fragment, and a final battle to decide the true
+           Guardian of the Star.</p>
+      <div class="divider" aria-hidden="true"><i></i><span>✦</span><i></i></div>
+    </div>
+
+    <section class="fighters" id="fighters">
+      <h2 class="heading">Choose Your Fighter</h2>
+      <div class="fighter-grid">
+
+        <article class="fighter reveal" style="--c:#5f9a37; --cd:#4a7c28">
+          <div class="portrait"><img src="assets/char-archer.jpg" alt="Archer — a calm forest ranger" loading="lazy"></div>
+          <h3 class="tag">Archer</h3>
+          <p>A calm forest ranger with a magical bow.</p>
+          <blockquote>&ldquo;I don't miss.&rdquo;</blockquote>
+        </article>
+
+        <article class="fighter reveal" style="--c:#3373c9; --cd:#245699">
+          <div class="portrait"><img src="assets/char-gunner.jpg" alt="Arcane Gunner — a young inventor" loading="lazy"></div>
+          <h3 class="tag">Arcane Gunner</h3>
+          <p>A young inventor with a crystal gun.</p>
+          <blockquote>&ldquo;Why use a sword when technology exists?&rdquo;</blockquote>
+        </article>
+
+        <article class="fighter reveal" style="--c:#d0502f; --cd:#a53a1e">
+          <div class="portrait"><img src="assets/char-mage.jpg" alt="Bomb Mage — a reckless magician" loading="lazy"></div>
+          <h3 class="tag">Bomb Mage</h3>
+          <p>A reckless magician with magic bombs.</p>
+          <blockquote>&ldquo;I know exactly what I'm doing.&rdquo;</blockquote>
+        </article>
+
+        <article class="fighter reveal" style="--c:#6d41c8; --cd:#52309c">
+          <div class="portrait"><img src="assets/char-ninja.jpg" alt="Shadow Ninja — a mysterious warrior" loading="lazy"></div>
+          <h3 class="tag">Shadow Ninja</h3>
+          <p>A mysterious warrior from the Shadow Clan.</p>
+          <blockquote>&ldquo;You never saw me coming.&rdquo;</blockquote>
+        </article>
+
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<footer class="footer" id="how">
+  <div class="footer-inner">
+
+    <div class="how reveal">
+      <h2 class="script">How to Play</h2>
+      <p class="how-sub">1v1 turn-based combat</p>
+      <ol class="steps">
+        <li>
+          <img src="assets/step-choose.png" alt="" aria-hidden="true">
+          <strong>Choose</strong>
+          <span>Pick your fighter</span>
+        </li>
+        <li>
+          <img src="assets/step-draw.png" alt="" aria-hidden="true">
+          <strong>Draw</strong>
+          <span>Get random spell cards</span>
+        </li>
+        <li>
+          <img src="assets/step-fight.png" alt="" aria-hidden="true">
+          <strong>Fight</strong>
+          <span>Use skills, items and strategy</span>
+        </li>
+      </ol>
+    </div>
+
+    <ul class="features reveal">
+      <li>2,000 HP</li>
+      <li>Unique weapons</li>
+      <li>Random spell cards</li>
+      <li>Risky choices &amp; unexpected comebacks</li>
+    </ul>
+
+    <div class="spells reveal">
+      <figure><img src="assets/card-double.png" alt="Double Trouble spell card"><figcaption>Double Trouble</figcaption></figure>
+      <figure><img src="assets/card-heal.png" alt="Healing spell card"><figcaption>Healing</figcaption></figure>
+      <figure><img src="assets/card-shield.png" alt="Mini Shield spell card"><figcaption>Mini Shield</figcaption></figure>
+      <figure><img src="assets/card-blood.png" alt="Blood Pact spell card"><figcaption>Blood Pact</figcaption></figure>
+      <figure><img src="assets/card-swap.png" alt="Swap spell card"><figcaption>Swap</figcaption></figure>
+    </div>
+
+    <div class="cta reveal" id="play">
+      <img class="cta-crystal" src="assets/footer-crystal.jpg" alt="" aria-hidden="true">
+      <div>
+        <p class="script cta-line">Ready to become<br>the Guardian?</p>
+        <a class="btn" href="#top"><span class="btn-star" aria-hidden="true">★</span>Play The Last Star</a>
+      </div>
+    </div>
+
+  </div>
+  <p class="fineprint">© 2026 The Last Star · A cozy 1v1 tactical adventure</p>
+</footer>
+
+<script src="js/main.js?v=2"></script>
+</body>
+</html>
