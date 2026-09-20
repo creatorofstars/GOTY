@@ -75,6 +75,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 const rooms = new Map(); // roomId -> room
+const sessions = new Map(); // 会话令牌 -> roomId（掉线重连用：玩家对象上存 token）
 const waitingQueue = []; // 快速匹配
 
 function genTerrain(map) {
@@ -462,6 +463,67 @@ function broadcastState(room, withTerrain) {
   for (const p of room.players) io.to(p.sid).emit('state', publicRoom(room, p.sid, withTerrain));
 }
 
+/** 将玩家真正移出房间（主动离开、掉线宽限超时共用）：处理房主转移、判负/回等待、房间回收 */
+function removePlayerFromRoom(room, p) {
+  if (p.dcTimer) { clearTimeout(p.dcTimer); p.dcTimer = null; }
+  const i = room.players.indexOf(p);
+  if (i >= 0) {
+    room.players.splice(i, 1);
+    broadcast(room, 'msg', { sys: true, text: `${p.name} 离开了` });
+  }
+  if (p.token) sessions.delete(p.token);
+  // 房主离开：转移给房间里的下一名玩家
+  if (room.hostSid === p.sid) {
+    room.hostSid = room.players.length ? room.players[0].sid : null;
+    if (room.hostSid) broadcast(room, 'msg', { sys: true, text: `${room.players[0].name} 成为新房主` });
+  }
+  const active = room.players.filter(x => !x.spectator);
+  if (room.state === 'playing') {
+    if (room.mode === 'pve') {
+      // PVE：只要还有玩家就继续
+      if (active.length === 0) {
+        room.state = 'waiting';
+        clearInterval(room.timer);
+        clearInterval(room.shotTimer);
+        clearInterval(room.bossShotTimer);
+        clearInterval(room.gravityTimer);
+        broadcast(room, 'msg', { sys: true, text: '人数不足，回到等待中…' });
+      }
+    } else {
+      // PVP：一方全部退出 → 剩余方直接获胜（退出者判负）；否则回到等待
+      const aliveTeams = [0, 1].filter(t => active.some(x => x.team === t));
+      if (active.length >= 1 && aliveTeams.length === 1) {
+        const winTeam = aliveTeams[0];
+        const winName = winTeam === 0 ? '红队' : '蓝队';
+        const winners = active.filter(x => x.team === winTeam && x.alive).map(x => x.name);
+        broadcast(room, 'msg', { sys: true, text: `🏃 对手退出对战，${winName} 直接获胜！` });
+        endGame(room, winName, winners);
+      } else if (active.length < 2 || aliveTeams.length < 2) {
+        room.state = 'waiting';
+        clearInterval(room.timer);
+        clearInterval(room.shotTimer);
+        clearInterval(room.bossShotTimer);
+        clearInterval(room.gravityTimer);
+        broadcast(room, 'msg', { sys: true, text: '人数不足，回到等待中…' });
+      }
+    }
+    reorderRoom(room);
+    room.turn = 0;
+  }
+  broadcastState(room);
+  if (room.players.length === 0) {
+    clearInterval(room.timer);
+    clearInterval(room.shotTimer);
+    clearInterval(room.bossShotTimer);
+    clearInterval(room.gravityTimer);
+    rooms.delete(room.id);
+    const qi = waitingQueue.indexOf(room.id);
+    if (qi >= 0) waitingQueue.splice(qi, 1);
+  } else {
+    broadcastRoom(room);
+  }
+}
+
 function publicRoom(room, forSid, withTerrain) {
   const o = {
     id: room.id,
@@ -475,7 +537,9 @@ function publicRoom(room, forSid, withTerrain) {
     players: room.players.map((p, i) => ({
       slot: i, name: p.name, x: Math.round(p.x), y: Math.round(p.y),
       hp: p.hp, alive: p.alive, isYou: p.sid === forSid, dir: p.dir, team: p.team, char: p.char || 0,
+      spectator: !!p.spectator,
       shield: p.shield || 0, poison: p.poison || 0, berserk: p.berserk || 0, fortress: p.fortress || 0,
+      revenge: p.revenge || 0, dc: !!p.disconnected,
       points: p.points || 0, extraShots: p.extraShots || 0, critBonus: p.critBonus || 0, dmgPct: p.dmgPct || 0, flatDmg: p.flatDmg || 0,
     })),
   };
@@ -1087,6 +1151,9 @@ function fire(room, shooter) {
 io.on('connection', (socket) => {
   let curRoom = null, me = null;
   socket.data.name = randomName();
+  // 会话令牌：重连时用它找回掉线玩家（socket.id 每次连接都会变）
+  const myToken = crypto.randomUUID();
+  socket.emit('session', { token: myToken });
 
   socket.on('setChar', (n) => {
     if (!curRoom || !me) return;
@@ -1155,6 +1222,7 @@ io.on('connection', (socket) => {
     curRoom = room;
     socket.join(room.id);
     me = addPlayerToRoom(room, socket.id, socket.data.name, !!spectate);
+    me.token = myToken; sessions.set(myToken, room.id);
     broadcast(room, 'msg', { sys: true, text: `${me.name} ${me.spectator ? '进入观战' : '加入了房间'}` });
     const inGame = room.state !== 'waiting';
     socket.emit('joined', { roomId: room.id, isSpectator: me.spectator, inGame });
@@ -1204,70 +1272,57 @@ io.on('connection', (socket) => {
 
   function leaveRoom() {
     if (!curRoom) return;
-    const room = curRoom;
-    socket.leave(room.id);
-    const i = room.players.findIndex(p => p.sid === socket.id);
-    if (i >= 0) {
-      const [p] = room.players.splice(i, 1);
-      broadcast(room, 'msg', { sys: true, text: `${p.name} 离开了` });
-    }
-    // 房主离开：转移给房间里的下一名玩家
-    if (room.hostSid === socket.id) {
-      room.hostSid = room.players.length ? room.players[0].sid : null;
-      if (room.hostSid) broadcast(room, 'msg', { sys: true, text: `${room.players[0].name} 成为新房主` });
-    }
-    const active = room.players.filter(x => !x.spectator);
-    if (room.state === 'playing') {
-      if (room.mode === 'pve') {
-        // PVE：只要还有玩家就继续
-        if (active.length === 0) {
-          room.state = 'waiting';
-          clearInterval(room.timer);
-          clearInterval(room.shotTimer);
-          clearInterval(room.bossShotTimer);
-          clearInterval(room.gravityTimer);
-          broadcast(room, 'msg', { sys: true, text: '人数不足，回到等待中…' });
-        }
-      } else {
-        // PVP：一方全部退出 → 剩余方直接获胜（退出者判负）；否则回到等待
-        const aliveTeams = [0, 1].filter(t => active.some(x => x.team === t));
-        if (active.length >= 1 && aliveTeams.length === 1) {
-          const winTeam = aliveTeams[0];
-          const winName = winTeam === 0 ? '红队' : '蓝队';
-          const winners = active.filter(x => x.team === winTeam && x.alive).map(x => x.name);
-          broadcast(room, 'msg', { sys: true, text: `🏃 对手退出对战，${winName} 直接获胜！` });
-          endGame(room, winName, winners);
-        } else if (active.length < 2 || aliveTeams.length < 2) {
-          room.state = 'waiting';
-          clearInterval(room.timer);
-          clearInterval(room.shotTimer);
-          clearInterval(room.bossShotTimer);
-          clearInterval(room.gravityTimer);
-          broadcast(room, 'msg', { sys: true, text: '人数不足，回到等待中…' });
-        }
-      }
-      reorderRoom(room);
-      room.turn = 0;
-    }
-    broadcastState(room);
-    if (room.players.length === 0) {
-      clearInterval(room.timer);
-      clearInterval(room.shotTimer);
-      clearInterval(room.bossShotTimer);
-      clearInterval(room.gravityTimer);
-      rooms.delete(room.id);
-      const qi = waitingQueue.indexOf(room.id);
-      if (qi >= 0) waitingQueue.splice(qi, 1);
-    } else {
-      broadcastRoom(room);
-    }
+    socket.leave(curRoom.id);
+    removePlayerFromRoom(curRoom, me);
     curRoom = null; me = null;
   }
+
+  // 断线重连：客户端（含刷新页面/socket.io自动重连）带令牌找回掉线玩家，重绑到新连接
+  socket.on('resume', (tok) => {
+    tok = String(tok || '');
+    const rid = sessions.get(tok);
+    const room = rid ? rooms.get(rid) : null;
+    if (!room) { if (rid) sessions.delete(tok); return; }
+    const p = room.players.find(x => x.token === tok && x.disconnected);
+    if (!p) return; // 无掉线玩家：令牌无效或已超时移除，走正常大厅流程
+    if (curRoom) leaveRoom();
+    if (p.dcTimer) { clearTimeout(p.dcTimer); p.dcTimer = null; }
+    p.disconnected = false;
+    p.sid = socket.id;
+    socket.data.name = p.name; // 服务器侧名字同步回该玩家的对局名
+    curRoom = room; me = p;
+    socket.join(room.id);
+    broadcast(room, 'msg', { sys: true, text: `🎉 ${p.name} 重连成功` });
+    socket.emit('joined', { roomId: room.id, isSpectator: false, inGame: true, reconnected: true });
+    broadcastRoom(room);
+    broadcastState(room);
+    io.to(socket.id).emit('state', publicRoom(room, socket.id, true)); // 全量快照（含被破坏地形）
+    io.to(socket.id).emit('hand', { cards: p.hand || [] });
+  });
+
+  // 断线：对局中的对战玩家进入30秒宽限期（保留席位与状态），其余情况立即移除
+  socket.on('disconnect', () => {
+    if (curRoom && me && curRoom.state === 'playing' && !me.spectator) {
+      const room = curRoom, p = me;
+      p.disconnected = true;
+      broadcast(room, 'msg', { sys: true, text: `🔌 ${p.name} 掉线，等待重连（30秒）…` });
+      broadcastRoom(room);
+      broadcastState(room);
+      p.dcTimer = setTimeout(() => {
+        p.disconnected = false;
+        removePlayerFromRoom(room, p); // 超时：按主动离开处理（PVP判负/回等待）
+      }, 30000);
+      curRoom = null; me = null;
+    } else {
+      leaveRoom();
+    }
+  });
 
   socket.on('leaveRoom', leaveRoom);
 
   socket.on('aim', ({ angle, power, dir }) => {
     if (!curRoom || !me || curRoom.state !== 'playing') return;
+    if (me.spectator) return; // 观战者不能上报瞄准（会污染朝向广播）
     me.angle = Math.max(-30, Math.min(90, Math.round(+angle || 45))); // 世界仰角
     me.power = Math.max(40, Math.min(MAX_POWER, Math.round(+power || 40)));
     if (dir === 1 || dir === -1) {
@@ -1386,8 +1441,6 @@ io.on('connection', (socket) => {
 
   // 延迟测量：客户端发带回调的探测包，收到即回执（socket.io ack）
   socket.on('lat:ping', (ack) => { if (typeof ack === 'function') ack(); });
-
-  socket.on('disconnect', leaveRoom);
 });
 
 const PORT = process.env.PORT || 5000;

@@ -10,6 +10,15 @@ cv.height = H * RES;
 
 const socket = io({ transports: ['websocket', 'polling'] }); // 优先WebSocket，跳过polling起步
 let myName = '';
+// 断线重连：服务器发放的会话令牌持久保存在本地，重连/刷新后凭它找回对局
+let sessToken = localStorage.getItem('ddt_token') || '';
+socket.on('session', ({ token }) => { sessToken = token; localStorage.setItem('ddt_token', token); });
+// 每次连接建立（含socket.io自动重连、页面刷新后的首次连接）都尝试恢复对局；无有效会话时服务器静默忽略
+socket.on('connect', () => {
+  $('dcBanner').classList.add('hidden');
+  if (sessToken) socket.emit('resume', sessToken);
+});
+socket.on('disconnect', () => { $('dcBanner').classList.remove('hidden'); });
 let roomId = null;
 let isSpectator = false;
 let terrain = new Float32Array(W);
@@ -640,16 +649,24 @@ socket.on('err', (m) => { $('lobbyErr').textContent = m; setTimeout(() => $('lob
 socket.on('renamed', (n) => { myName = n; });
 
 /* ---------- 进入房间 ---------- */
-socket.on('joined', ({ roomId: rid, isSpectator: spec, inGame }) => {
+socket.on('joined', ({ roomId: rid, isSpectator: spec, inGame, reconnected }) => {
   roomId = rid;
   isSpectator = spec;
   lobbyEl.classList.add('hidden');
   document.querySelectorAll('.chatLog').forEach(l => l.innerHTML = '');
+  if (reconnected) {
+    // 掉线重连恢复：直接回到对局画面（快照state随后到达并重建地形）
+    roomScreenEl.classList.add('hidden');
+    gameEl.classList.remove('hidden');
+    $('dcBanner').classList.add('hidden');
+    addChat(null, t('reconnected'));
+    return;
+  }
   if (inGame) {
     // 直播进行中的对局，直接进入游戏画面
     roomScreenEl.classList.add('hidden');
     gameEl.classList.remove('hidden');
-    addChat(null, spec ? `你以观战身份进入房间 ${rid}` : `已进入房间 ${rid}`);
+    addChat(null, spec ? tf('joined_spec', { r: rid }) : tf('joined_room', { r: rid }));
   } else {
     // 进入房间等待界面
     gameEl.classList.add('hidden');
@@ -851,7 +868,7 @@ socket.on('turn', (t) => {
   if (curTurnSid === socket.id && !barCollapsedByUser) setBarCollapsed(true); // 自己的回合自动收起底栏
   $('timer').textContent = t.timeLeft;
   $('timer').classList.toggle('urgent', t.timeLeft <= 5);
-  if (me) {
+  if (me && curTurnSid === socket.id) { // 只有自己回合才同步积分/强化到me（观战者/他人回合不覆盖）
     me.points = t.points; me.extraShots = t.extraShots; me.critBonus = t.critBonus;
     me.dmgPct = t.dmgPct; me.flatDmg = t.flatDmg;
   }
@@ -1136,8 +1153,8 @@ function updateHUD() {
     const mates = active.filter(p => p.team === team);
     for (const p of mates) {
       const row = document.createElement('div');
-      row.className = 'hprow' + (team === 1 ? ' right' : '') + (p.alive ? '' : ' dead');
-      row.innerHTML = `<span class="hname">${escapeHtml(p.name)}${p.isYou ? t('you') : ''}</span>` +
+      row.className = 'hprow' + (team === 1 ? ' right' : '') + (p.alive ? '' : ' dead') + (p.dc ? ' dc' : '');
+      row.innerHTML = `<span class="hname">${escapeHtml(p.name)}${p.isYou ? t('you') : ''}${p.dc ? t('dc_badge') : ''}</span>` +
         `<div class="hpbar"><div class="hpfill" style="width:${p.hp / 10}%;background:${p.alive ? 'linear-gradient(90deg,#43d96a,#a8e063)' : '#555'}"></div></div>`;
       rows.appendChild(row);
     }

@@ -44,6 +44,8 @@ const I18N = {
     upg_g: '强化G', upg_g_d: '二次爆破:命中点二次爆炸(40%伤害)',
     upg_s: '强化S', upg_s_d: '伤害+100%（蓄积两回合）',
     sold_out: '（已生效）',
+    dc_banner: '🔌 连接已断开，正在尝试重连…', dc_badge: '🔌重连中', reconnected: '🎉 重连成功，已恢复对局',
+    joined_spec: '你以观战身份进入房间 {r}', joined_room: '已进入房间 {r}',
   },
   en: {
     lobby_tip: 'Classic turn-based artillery battles · Multiplayer & Spectate',
@@ -89,6 +91,8 @@ const I18N = {
     upg_g: 'Upgrade G', upg_g_d: 'Second Blast: follow-up explosion (40% damage)',
     upg_s: 'Upgrade S', upg_s_d: 'Damage +100% (charges over 2 turns)',
     sold_out: ' (Active)',
+    dc_banner: '🔌 Disconnected, reconnecting…', dc_badge: '🔌Reconnecting', reconnected: '🎉 Reconnected, game resumed',
+    joined_spec: 'You joined room {r} as a spectator', joined_room: 'Joined room {r}',
   },
 };
 let LANG = localStorage.getItem('lang') || 'zh';

@@ -224,6 +224,7 @@ input:focus { border-color: #ffd54a; box-shadow: 0 0 0 3px rgba(255,213,74,.15);
 .hprow .hpbar { flex: 1; height: 10px; background: rgba(0,0,0,.5); border-radius: 5px; overflow: hidden; }
 .hprow .hpfill { height: 100%; border-radius: 5px; transition: width .5s; }
 .hprow.dead .hname { color: #667; text-decoration: line-through; }
+.hprow.dc .hname { color: #b8a44a; } /* 掉线等待重连的玩家 */
 .center-hud { text-align: center; min-width: 200px; }
 #turnLabel { font-size: 14px; color: #ffd54a; font-weight: bold; }
 .wind { font-size: 13px; color: #9fb0d0; }
@@ -396,3 +397,16 @@ input:focus { border-color: #ffd54a; box-shadow: 0 0 0 3px rgba(255,213,74,.15);
 :fullscreen #cv { width: 100vw; height: 100vh; object-fit: cover; }
 :fullscreen .topbar { top: 0; left: 0; right: 0; border-radius: 0; border-left: none; border-right: none; border-top: none; }
 :fullscreen .bottombar { bottom: 0; left: 0; right: 0; width: 100vw; border-radius: 0; border-left: none; border-right: none; border-bottom: none; }
+
+/* ---------- 断线重连横幅（全局置顶居中） ---------- */
+#dcBanner {
+  position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 99;
+  padding: 8px 22px; border-radius: 20px;
+  background: rgba(160, 30, 30, .92); color: #fff; font-size: 14px; font-weight: 600;
+  box-shadow: 0 2px 12px rgba(0,0,0,.4); pointer-events: none;
+  animation: dcPulse 1.2s ease-in-out infinite;
+}
+@keyframes dcPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .65; }
+}
