@@ -29,7 +29,7 @@
 
 - **PVP**: Red vs Blue teams (up to 3 players each) take turns firing; knock every enemy player's HP to 0 to win. A victory/defeat cinematic video plays before the result screen (click to skip)
 - **PVE**: Team up against the Monster Legion (minions + Boss) and win by wiping out all monsters. The Boss lobs "minion bombs" that land as reinforcements, and uses melee attacks up close
-- Every player has **1500 HP**
+- Every player has **1000 HP**
 - **Host system**: the player who creates (or first joins) a room becomes the host (👑) and presses "Start Game"; PVE can start with a single player, PVP needs at least 2. If the host leaves, the host role is transferred automatically
 - The lobby room list shows **Join / Spectate** buttons per room; once a game starts you can only spectate. Disconnects are recovered through a **session-token reconnect** (30-second grace period, full game state restored)
 - `A`/`D` move left/right (a 150px movement budget per turn), **hold** `W`/`S` to keep adjusting your angle — passing 90° automatically flips your character
@@ -42,7 +42,7 @@
 
 - **PVP**：红蓝两队（每队最多 3 人）轮流开炮，将敌方全员 HP 打到 0 即获胜；胜利/失败会在结算前播放对应的胜负动画视频（可点击跳过）
 - **PVE**：玩家组队对抗怪物军团（小兵 + Boss），怪物全灭获胜；Boss 会朝玩家抛射"小兵炮弹"落地增援，靠近后近战攻击
-- 玩家 HP 统一 **1500**
+- 玩家 HP 统一 **1000**
 - **房主制度**：创建/第一个进入房间的玩家是房主（👑），由房主点击"开始游戏"；PVE 单人即可开局，PVP 至少 2 人；房主离开自动转移房主身份
 - 大厅房间列表每项有 **加入 / 观战** 两个按钮；游戏开始后只能观战；掉线后凭会话令牌**重连恢复**（30 秒宽限期，恢复完整局面）
 - `A`/`D` 左右移动（每回合 150px 移动预算），**按住** `W`/`S` 持续调整角度，越过 90° 会自动转身
