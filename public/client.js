@@ -902,10 +902,13 @@ function playEndingVideo(src, onDone) {
   wrap.onclick = finish;        // 点击任意处可跳过动画
   v.onended = finish;
   v.onerror = finish;
+  let started = false;
+  v.onplaying = () => { started = true; }; // 视频真正开始播放
   v.src = src;
   wrap.classList.remove('hidden');
   const p = v.play();
   if (p && p.catch) p.catch(() => { v.muted = true; v.play().catch(finish); }); // 自动播放被拦截时静音重试
+  setTimeout(() => { if (!started) finish(); }, 12000); // 12秒内未能开始播放（加载过慢/失败）则跳过
   setTimeout(finish, 45000);    // 安全兜底：异常时最多等待45秒
 }
 
