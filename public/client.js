@@ -729,6 +729,8 @@ const MAP_LABEL = () => ({ random: t('map_random'), castle: t('map_castle') });
 let curMap = 'random';
 window.addEventListener('langchange', () => {
   // 语言切换后即时刷新动态文本；房间界面用最近一次广播数据整体重绘
+  renderCards(); // 手牌卡牌名称/描述跟随语言切换
+  renderPoints(); // 强化商店文案跟随语言切换
   if (lastRoom && !roomScreenEl.classList.contains('hidden')) renderRoom(lastRoom);
   const dd = $('mapDropdown');
   if (dd) dd.textContent = MAP_LABEL()[curMap] + ' ▾';
@@ -1387,7 +1389,7 @@ function renderCards() {
   for (const c of hand) {
     const div = document.createElement('div');
     div.className = 'card' + (usable ? '' : ' disabled');
-    div.innerHTML = `<div class="cemoji">${c.emoji}</div><div class="cname">${c.name}</div><div class="cdesc">${c.desc}</div>`;
+    div.innerHTML = `<div class="cemoji">${c.emoji}</div><div class="cname">${t('card_' + c.id) !== 'card_' + c.id ? t('card_' + c.id) : c.name}</div><div class="cdesc">${t('card_' + c.id + '_d') !== 'card_' + c.id + '_d' ? t('card_' + c.id + '_d') : c.desc}</div>`;
     if (usable) div.onclick = () => socket.emit('playCard', c.id);
     el.appendChild(div);
   }
