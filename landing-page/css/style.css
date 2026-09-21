@@ -582,17 +582,20 @@ section { scroll-margin-top: 70px; }
 .feedback {
   position: relative;
   padding: clamp(46px, 6vw, 80px) clamp(14px, 3vw, 40px);
-  background:
-    radial-gradient(900px 420px at 6% 10%, rgba(70, 135, 85, .38), transparent 62%),
-    radial-gradient(820px 420px at 94% 88%, rgba(34, 96, 62, .42), transparent 60%),
-    radial-gradient(600px 300px at 80% 8%, rgba(40, 105, 70, .30), transparent 60%),
-    radial-gradient(2px 2px at 16% 26%, rgba(255, 230, 150, .5), transparent 55%),
-    radial-gradient(2px 2px at 82% 70%, rgba(255, 230, 150, .4), transparent 55%),
-    radial-gradient(2px 2px at 48% 85%, rgba(255, 230, 150, .35), transparent 55%),
-    linear-gradient(160deg, #163522, #0e2233 68%, #101c33);
+  background: url("../assets/bg-later.jpg") center / cover no-repeat #4a7ab5;
+}
+
+.feedback::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(12, 22, 50, .34), rgba(12, 22, 50, .06) 30%, rgba(12, 22, 50, .06) 72%, rgba(12, 22, 50, .34));
+  pointer-events: none;
 }
 
 .feedback-panel {
+  position: relative;
+  z-index: 1;
   max-width: 1400px;
   margin: 0 auto;
   background:
