@@ -1,5 +1,5 @@
 /**
- * 弹弹堂风格多人在线回合制炮弹游戏 - 服务端
+ * The Last Star - 多人在线回合制炮弹游戏 - 服务端
  * 服务器权威：弹道、伤害、地形均在服务器计算，客户端只负责渲染与输入
  */
 const express = require('express');
@@ -38,15 +38,15 @@ function randomName() {
   return EN_NAMES[Math.floor(Math.random() * EN_NAMES.length)] + Math.floor(Math.random() * 90 + 10);
 }
 
-/** 卡牌定义：每回合发3张，每回合限打1张（不消耗开火机会） */
+/** 卡牌定义：双卡槽制——开局随机1张，可主动抽牌三选一补满第二槽；仅自己回合可打出 */
 const CARDS = {
-  heal:      { id: 'heal',      emoji: '💚', name: 'Healing',       desc: '恢复150点生命' },
-  shield:    { id: 'shield',    emoji: '🛡️', name: 'Mini Shield',   desc: '获得护盾，格挡150点伤害（周身淡蓝护盾特效）' },
-  double:    { id: 'double',    emoji: '💥', name: 'Double Trouble',desc: '炮弹额外造成100点真实伤害（不受任何加成影响）' },
-  revenge:   { id: 'revenge',   emoji: '🎯', name: 'Revenge',       desc: '下一次炮击伤害+100' },
-  poison:    { id: 'poison',    emoji: '☠️', name: 'Poison',        desc: '炮弹命中的目标受100点毒伤，之后每回合50点毒伤，共2回合' },
-  bloodpact: { id: 'bloodpact', emoji: '🏹', name: 'Blood Pact',    desc: '炮弹额外造成200点真实伤害；消耗125生命（最低保留1点）；仅能使用一次' },
-  berserk:   { id: 'berserk',   emoji: '🔥', name: 'Berserk',       desc: '3回合内炮击伤害+80' },
+  heal:      { id: 'heal',      emoji: '💚', name: 'Healing',       desc: '恢复250点生命' },
+  shield:    { id: 'shield',    emoji: '🛡️', name: 'Mini Shield',   desc: '获得护盾，格挡250点伤害（周身淡蓝护盾特效）' },
+  double:    { id: 'double',    emoji: '💥', name: 'Double Trouble',desc: '炮弹额外造成120点真实伤害（不受任何加成影响）' },
+  revenge:   { id: 'revenge',   emoji: '🎯', name: 'Revenge',       desc: '下一次炮击伤害+100（可叠加）' },
+  poison:    { id: 'poison',    emoji: '☠️', name: 'Poison',        desc: '炮弹命中的目标受120点毒伤，之后每回合60点毒伤，共2回合（多张叠加）' },
+  bloodpact: { id: 'bloodpact', emoji: '🏹', name: 'Blood Pact',    desc: '炮弹额外造成280点真实伤害；消耗150生命（最低保留1点）；仅能使用一次' },
+  berserk:   { id: 'berserk',   emoji: '🔥', name: 'Berserk',       desc: '3回合内炮击伤害+70' },
   fortress:  { id: 'fortress',  emoji: '🏰', name: 'Fortress',      desc: '3回合内受到的伤害降低25%' },
 };
 /** 积分强化定义 */
@@ -60,15 +60,28 @@ const UPGRADES = {
   f: { id: 'f', name: '强化F', cost: 30,  desc: '精准：不受距离衰减，边缘保持满伤害' },
   g: { id: 'g', name: '强化G', cost: 80,  desc: '二次爆破：命中点引发二次爆炸(半径40,40%伤害)' },
 };
-function drawCards(p) {
-  // 血契一次性卡：该玩家用过一次后不再出现在手牌中
-  const ids = Object.keys(CARDS).filter(id => !(id === 'bloodpact' && p && p.bloodUsed));
-  const hand = [];
-  while (hand.length < 3) {
+function cardPool(p) {
+  // 血契一次性卡：该玩家用过一次后不再出现
+  return Object.keys(CARDS).filter(id => !(id === 'bloodpact' && p && p.bloodUsed));
+}
+function randomCard(p) {
+  const ids = cardPool(p);
+  return CARDS[ids[Math.floor(Math.random() * ids.length)]];
+}
+function randomChoices(p, n) {
+  const ids = cardPool(p);
+  const picked = [];
+  while (picked.length < n && picked.length < ids.length) {
     const c = ids[Math.floor(Math.random() * ids.length)];
-    if (!hand.includes(c)) hand.push(c);
+    if (!picked.includes(c)) picked.push(c);
   }
-  return hand.map(id => CARDS[id]);
+  return picked.map(id => CARDS[id]);
+}
+/** 向玩家同步卡槽状态（仅发给本人） */
+function sendSlots(p) {
+  io.to(p.sid).emit('hand', { slots: p.slots || [], deckUsed: !!p.deckUsed });
+  if (p.cardChoice && p.cardChoice.length) io.to(p.sid).emit('cardChoice', { cards: p.cardChoice });
+  else io.to(p.sid).emit('cardChoice', { cards: [] });
 }
 
 // 官网落地页挂在根路径（其 css/js 资源目录与 public 不冲突），游戏大厅挂 /game
@@ -281,21 +294,21 @@ function createRoom(name, pve) {
 /** 生成PVE怪物：与玩家数相当的小兵 + 1个Boss */
 function spawnMonsters(room) {
   const actives = room.players.filter(p => !p.spectator);
-  const n = Math.max(2, actives.length);
+  const n = Math.max(3, actives.length);
   room.monsters = [];
   for (let i = 0; i < n; i++) {
     const x = Math.min(WORLD_W - 100, 1100 + i * 150 + Math.random() * 40);
-    room.monsters.push({ id: 'm' + i, kind: 'minion', x, y: 0, hp: 450, maxHp: 450, dmg: 60, speed: 30, range: 45, r: 19.5, alive: true });
+    room.monsters.push({ id: 'm' + i, kind: 'minion', x, y: 0, hp: 450, maxHp: 450, dmg: 125, speed: 200, range: 45, r: 19.5, alive: true });
   }
   const bx = Math.min(WORLD_W - 100, 1160 + n * 150);
-  room.monsters.push({ id: 'boss', kind: 'boss', x: bx, y: 0, hp: 1800, maxHp: 1800, dmg: 130, speed: 18, range: 60, r: 35.75, alive: true, spawnCount: 0 });
+  room.monsters.push({ id: 'boss', kind: 'boss', x: bx, y: 0, hp: 1800, maxHp: 1800, dmg: 250, speed: 100, range: 60, r: 35.75, alive: true, spawnCount: 0 });
   for (const m of room.monsters) m.y = groundY(room.terrain, m.x); // 出生在地面（平台由重力系统按需承接）
   broadcast(room, 'monsters', { monsters: room.monsters });
 }
 
-/** Boss行动：发射一枚“小兵炮弹”（32tick权威抛射，无弹坑，落地生成小兵） */
-function bossSpawnShot(room, boss) {
-  if (room.monsters.length >= 10) return; // 场上小兵上限
+/** Boss行动：发射一枚“小兵炮弹”（32tick权威抛射，无弹坑，落地生成小兵）。onDone在炮弹落地后调用 */
+function bossSpawnShot(room, boss, onDone) {
+  if (room.monsters.length >= 10) { onDone && onDone(); return; } // 场上小兵上限
   const seq = ++room.spawnSeq;
   const id = 'sp' + seq;
   let dirx = Math.random() < 0.5 ? -1 : 1;
@@ -316,7 +329,7 @@ function bossSpawnShot(room, boss) {
   room.bossShot = { id, shot };
   room.bossShotTimer = setInterval(() => {
     const bs = room.bossShot;
-    if (!bs) { clearInterval(room.bossShotTimer); room.bossShotTimer = null; return; }
+    if (!bs) { clearInterval(room.bossShotTimer); room.bossShotTimer = null; onDone && onDone(); return; }
     const s = bs.shot;
     s.x += s.vx * 0.7; s.y += s.vy * 0.7; s.vy += GRAVITY * 0.7; s.x += room.wind * 0.012;
     s.step = (s.step || 0) + 1;
@@ -328,10 +341,11 @@ function bossSpawnShot(room, boss) {
       clearInterval(room.bossShotTimer);
       room.bossShotTimer = null;
       room.bossShot = null;
-      const minion = { id, kind: 'minion', x: Math.round(s.x), y: gy, hp: 200, maxHp: 200, dmg: 40, speed: 30, range: 45, r: 12.5, alive: true };
+      const minion = { id, kind: 'minion', x: Math.round(s.x), y: gy, hp: 200, maxHp: 200, dmg: 85, speed: 200, range: 45, r: 12.5, alive: true };
       room.monsters.push(minion);
       broadcast(room, 'minionShotEnd', { id, minion });
       broadcast(room, 'monsters', { monsters: room.monsters });
+      onDone && onDone(); // 炮弹落地、小兵生成后才放行下一只行动
       return;
     }
     broadcast(room, 'minionShotTick', { id, x: +s.x.toFixed(1), y: +s.y.toFixed(1), vx: +s.vx.toFixed(2), vy: +s.vy.toFixed(2) });
@@ -370,7 +384,7 @@ function startGravity(room) {
       }
     }
     for (const m of room.monsters || []) {
-      if (!m.alive) continue;
+      if (!m.alive || m.climbing) continue; // 攀爬/挂壁中的怪物不受重力
       if (fallSteps(m, m.x)) {
         monsters.push({ id: m.id, y: +m.y.toFixed(1) });
         changed = true;
@@ -380,76 +394,131 @@ function startGravity(room) {
   }, TICK_MS);
 }
 /** 单只怪物行动：向最近的存活玩家移动，进入近战范围则攻击 */
-function monsterActOne(room, m) {
-  if (room.state !== 'playing' || !m.alive) return;
+function monsterActOne(room, m, onDone) {
+  // 串行怪物阶段：onDone 在本只行动真正结束后恰好调用一次（走完/打完/炮弹落地），下一只才开始
+  let finished = false;
+  const fin = () => { if (!finished) { finished = true; onDone && onDone(); } };
+  if (room.state !== 'playing' || !m.alive) { fin(); return; }
   // 怪物的"回合"开始：中毒掉血 / 被跳过
   if (m.poison > 0) {
     m.poison--;
-    const real = dealDamage(room, m, 50, '☠️ 中毒');
+    const real = dealDamage(room, m, 60, '☠️ 中毒');
     broadcast(room, 'poisonDmg', { monId: m.id, damage: real, hp: m.hp, alive: m.alive });
     broadcast(room, 'msg', { sys: true, text: `☠️ 中毒：${m.kind === 'boss' ? '👹Boss' : '👾小兵'} 损失 ${real} 生命` });
-    if (!m.alive) { broadcastState(room); checkCardEnd(room); return; }
+    if (!m.alive) { broadcastState(room); checkCardEnd(room); fin(); return; }
   }
   if (m.skip > 0) {
     m.skip--;
     broadcast(room, 'msg', { sys: true, text: `⏭️ ${m.kind === 'boss' ? '👹Boss' : '👾小兵'} 被跳过行动！` });
     broadcastState(room);
+    fin();
     return;
   }
   // Boss每2次行动：发射一枚“小兵炮弹”（32tick抛射，落地生成小兵），本次不再攻击/移动
   if (m.kind === 'boss') {
     m.spawnCount = (m.spawnCount || 0) + 1;
-    if (m.spawnCount % 2 === 0) { bossSpawnShot(room, m); return; }
+    if (m.spawnCount % 2 === 0) { bossSpawnShot(room, m, fin); return; }
   }
   const targets = room.players.filter(p => !p.spectator && p.alive);
-  if (!targets.length) return;
+  if (!targets.length) { fin(); return; }
   let target = targets[0], best = Infinity;
   for (const p of targets) {
     const d = Math.abs(p.x - m.x);
     if (d < best) { best = d; target = p; }
   }
-  if (best <= m.range) {
-    target.hp = Math.max(0, target.hp - m.dmg);
+  let walkStarted = false;
+  /** 近战攻击（起步在范围内与走到即砍共用） */
+  const melee = (t) => {
+    t.hp = Math.max(0, t.hp - m.dmg);
     const label = m.kind === 'boss' ? '👹Boss' : '👾小兵';
-    broadcast(room, 'msg', { sys: true, text: `${label} 近战攻击 ${target.name}，造成 ${m.dmg} 伤害！` });
-    if (target.hp <= 0) {
-      target.alive = false;
-      broadcast(room, 'msg', { sys: true, text: `💀 ${target.name} 被怪物击败了` });
+    broadcast(room, 'msg', { sys: true, text: `${label} 近战攻击 ${t.name}，造成 ${m.dmg} 伤害！` });
+    if (t.hp <= 0) {
+      t.alive = false;
+      broadcast(room, 'msg', { sys: true, text: `💀 ${t.name} 被怪物击败了` });
     }
-  } else {
-    // 朝目标小步走：每80ms走6px，逐步广播，客户端看到的是行走而非瞬移
-    const total = m.speed;
-    const dirx = Math.sign(target.x - m.x) || 1;
-    let walked = 0;
-    const iv = setInterval(() => {
-      if (room.state !== 'playing' || !m.alive) { clearInterval(iv); return; }
-      const step = Math.min(6, total - walked);
-      if (step <= 0) { clearInterval(iv); return; }
-      m.x = Math.max(20, Math.min(WORLD_W - 20, m.x + dirx * step));
-      walked += step;
+  };
+  /** 玩家全灭检查（近战可能补刀，走完与行动收尾都要查） */
+  const checkWipe = () => {
+    const aliveP = room.players.filter(p => !p.spectator && p.alive);
+    if (room.state === 'playing' && aliveP.length === 0) {
+      endGame(room, '怪物军团', []);
+      broadcast(room, 'msg', { sys: true, text: '💀 怪物军团获胜……' });
+    }
+  };
+  /** 走路收尾：走到即砍——走完后若已进入攻击范围，本次行动立刻近战，再放行下一只 */
+  const finishWalk = () => {
+    let t2 = null, bd = Infinity;
+    for (const p of room.players) {
+      if (p.spectator || !p.alive) continue;
+      const d = Math.abs(p.x - m.x);
+      if (d < bd) { bd = d; t2 = p; }
+    }
+    if (t2 && bd <= m.range) {
+      melee(t2);
       broadcast(room, 'monsters', { monsters: room.monsters });
-      if (walked >= total) clearInterval(iv);
-    }, 80);
-    // 垂直方向交给重力系统处理
+      broadcastState(room);
+      checkWipe();
+    }
+    fin();
+  };
+  if (best <= m.range) {
+    melee(target);
+  } else {
+    // 走路：步频 tick节拍与炮弹/重力同钟；走到"刚好进入攻击范围"即停（best - range + 1），不越过玩家。
+    // 墙体检测：每tick探测下一列自脚上8px起的承接面——高差≥8px视为陡壁，本tick不前进、
+    // 垂直攀爬4px且同样消耗行动步数（预算耗尽仍贴墙则挂壁，climbing=true 免于重力，下轮从断点继续爬）；
+    // 缓坡（0<高差<8）贴步而上；下坡/崖沿交给重力自然下落。修复城堡图怪物穿墙/被防卡死逻辑泵上墙顶。
+    walkStarted = true;
+    const TICK_MS = 1000 / 32;
+    const WALK_TICKS = m.kind === 'boss' ? 24 : 32; // 小兵200px在32tick内走完（6.25px/tick），Boss 100px为24tick
+    const PX_PER_TICK = m.speed / WALK_TICKS;
+    const total = Math.min(m.speed, best - m.range + 1);
+    const dirx = Math.sign(target.x - m.x) || 1;
+    let walked = 0, tickGuard = 0;
+    const iv = setInterval(() => {
+      if (room.state !== 'playing' || !m.alive) { clearInterval(iv); m.climbing = false; fin(); return; }
+      if (++tickGuard > 640) { clearInterval(iv); m.climbing = false; finishWalk(); return; } // 安全上限
+      const probe = Math.round(Math.max(20, Math.min(WORLD_W - 20, m.x + dirx * PX_PER_TICK)));
+      const g = groundBelow(room.mask, probe, m.y - 8);
+      const rise = m.y - g; // 正值=前方承接面高于脚部
+      if (rise >= 8) {
+        // 陡壁：原地攀爬，不水平前进，攀爬消耗行动步数
+        m.climbing = true;
+        m.y = Math.max(30, m.y - 4);
+        walked += 4;
+        if (walked >= total) { clearInterval(iv); finishWalk(); } // climbing保留：挂壁待下轮继续
+      } else {
+        m.climbing = false;
+        if (walked >= total) { clearInterval(iv); finishWalk(); return; }
+        const step = Math.min(PX_PER_TICK, total - walked);
+        m.x = Math.max(20, Math.min(WORLD_W - 20, m.x + dirx * step));
+        if (rise > 0) m.y = g; // 缓坡/台阶贴上新地面
+        walked += step;
+      }
+      broadcast(room, 'monsters', { monsters: room.monsters });
+    }, TICK_MS);
+    // 垂直下落交给重力系统处理（攀爬/挂壁中的怪物被重力跳过）
   }
   broadcast(room, 'monsters', { monsters: room.monsters });
   broadcastState(room);
-  // 玩家全灭 → 怪物获胜
-  const aliveP = room.players.filter(p => !p.spectator && p.alive);
-  if (room.state === 'playing' && aliveP.length === 0) {
-    endGame(room, '怪物军团', []);
-    broadcast(room, 'msg', { sys: true, text: '💀 怪物军团获胜……' });
-  }
+  checkWipe();
+  if (!walkStarted) fin(); // 近战等同步行动：收尾后立即放行；走路的在走完那一刻放行
 }
 
-/** 怪物阶段：每只怪物逐个行动（各自独立节奏），完毕后再轮到玩家 */
+/** 怪物阶段：逐只串行行动——上一只走完/打完/炮弹落地，下一只才开始；全部结束后才轮到玩家回合 */
 function monsterPhase(room, done) {
   if (room.state !== 'playing') { done && done(); return; }
   const alive = (room.monsters || []).filter(m => m.alive);
   if (!alive.length) { done && done(); return; }
   broadcast(room, 'msg', { sys: true, text: '👾 怪物行动中…' });
-  alive.forEach((m, i) => setTimeout(() => monsterActOne(room, m), 600 + i * 900));
-  setTimeout(() => done && done(), 600 + alive.length * 900);
+  let i = 0;
+  const next = () => {
+    if (room.state !== 'playing') { done && done(); return; }
+    while (i < alive.length && !alive[i].alive) i++; // 阶段中途阵亡的（如毒发）直接跳过
+    if (i >= alive.length) { done && done(); return; }
+    monsterActOne(room, alive[i++], next);
+  };
+  setTimeout(next, 600); // 阶段开场稍作停顿后开始第一只
 }
 
 /** 广播房间等待界面信息 */
@@ -531,6 +600,19 @@ function removePlayerFromRoom(room, p) {
   }
 }
 
+/** 碰撞掩码游程编码：0/1两值成对输出[值,长度,...]，数百万像素压缩为数KB */
+function rleMask(mask) {
+  const out = [];
+  let v = 0, n = 0;
+  for (let i = 0; i < mask.length; i++) {
+    const cur = mask[i] ? 1 : 0;
+    if (cur === v) n++;
+    else { out.push(v, n); v = cur; n = 1; }
+  }
+  out.push(v, n);
+  return out;
+}
+
 function publicRoom(room, forSid, withTerrain) {
   const o = {
     id: room.id,
@@ -550,7 +632,13 @@ function publicRoom(room, forSid, withTerrain) {
       points: p.points || 0, extraShots: p.extraShots || 0, critBonus: p.critBonus || 0, dmgPct: p.dmgPct || 0, flatDmg: p.flatDmg || 0,
     })),
   };
-  if (withTerrain) { o.terrain = Array.from(room.terrain); o.platforms = room.platforms; }
+  if (withTerrain) {
+    // 原始高度（而非被弹坑改写的投影高度）：客户端用它重建出与开局一致的贴图，
+    // 真实弹坑/被破坏平台由像素级掩码 maskRuns 还原，避免重建后地形断裂错位
+    o.terrain = Array.from(room.terrain0 || room.terrain);
+    o.platforms = room.platforms;
+    if (room.mask) o.maskRuns = rleMask(room.mask);
+  }
   return o;
 }
 
@@ -584,9 +672,9 @@ function addPlayerToRoom(room, sid, name, forceSpectator) {
     x: 0, y: 0, hp: MAX_HP, alive: true,
     angle: 45, power: 40, dir: 1, moveBudget: MOVE_BUDGET, fired: false,
     char: Math.floor(Math.random() * 4), // 角色形象（0~3），房间内可改
-    hand: [], cardPlayed: false,          // 卡牌
-    shield: 0, berserk: 0, revenge: false, fortress: 0, poison: 0, skip: 0, // 增减益
-    trueDmg: 0, hitPoison: false, bloodUsed: false, // 卡牌：炮弹附加真实伤害/命中涂毒/血契一次性
+    slots: [null, null], cardChoice: null, cardPlayed: false, deckUsed: false, // 卡牌：双卡槽+牌堆整局限抽一次（开局/重开时发随机卡）
+    shield: 0, berserk: 0, revenge: 0, fortress: 0, poison: 0, skip: 0, // 增减益（revenge为层数，可叠加）
+    trueDmg: 0, hitPoison: 0, bloodUsed: false, // 卡牌：炮弹附加真实伤害/命中涂毒（层数，可叠加）/血契一次性
     points: 0,                            // 积分（每回合+100）
     extraShots: 0, critBonus: 0, dmgPct: 0, flatDmg: 0, // 积分强化
     lifesteal: 0, pierceEdge: false, doubleBoom: false,   // 积分强化（机制型）
@@ -690,34 +778,34 @@ function applyCard(room, p, id) {
   const ename = enemy ? (enemy.kind ? (enemy.kind === 'boss' ? '👹Boss' : '👾小兵') : enemy.name) : '';
   switch (id) {
     case 'heal':
-      p.hp = Math.min(MAX_HP, p.hp + 150);
-      broadcast(room, 'msg', { sys: true, text: `💚 ${p.name} 恢复了 200 生命（${p.hp}）` });
+      p.hp = Math.min(MAX_HP, p.hp + 250);
+      broadcast(room, 'msg', { sys: true, text: `💚 ${p.name} 恢复了 250 生命（${p.hp}）` });
       break;
     case 'shield':
-      p.shield += 150;
+      p.shield += 250;
       broadcast(room, 'msg', { sys: true, text: `🛡️ ${p.name} 获得护盾（可格挡 ${p.shield} 伤害）` });
       break;
     case 'double':
-      p.trueDmg = (p.trueDmg || 0) + 100;
-      broadcast(room, 'msg', { sys: true, text: `💥 ${p.name} 的下一次炮击将额外造成 100 点真实伤害（不受任何加成影响）` });
+      p.trueDmg = (p.trueDmg || 0) + 120;
+      broadcast(room, 'msg', { sys: true, text: `💥 ${p.name} 的下一次炮击将额外造成 120 点真实伤害（不受任何加成影响）` });
       break;
     case 'revenge':
-      p.revenge = true;
-      broadcast(room, 'msg', { sys: true, text: `🎯 ${p.name} 的下一次炮击伤害 +100` });
+      p.revenge = (p.revenge || 0) + 1; // 层数叠加：下一炮每层+100
+      broadcast(room, 'msg', { sys: true, text: `🎯 ${p.name} 的下一次炮击伤害 +${100 * p.revenge}${p.revenge > 1 ? `（${p.revenge} 层复仇叠加）` : ''}` });
       break;
     case 'poison':
-      p.hitPoison = true;
-      broadcast(room, 'msg', { sys: true, text: `☠️ ${p.name} 的下一次炮弹命中将涂毒：目标 100 毒伤，之后每回合 50 共 2 回合` });
+      p.hitPoison = (p.hitPoison || 0) + 1; // 层数叠加：命中时每层独立结算毒伤与持续回合
+      broadcast(room, 'msg', { sys: true, text: `☠️ ${p.name} 的下一次炮弹命中将涂毒：目标 120 毒伤，之后每回合 60 共 2 回合${p.hitPoison > 1 ? `（已叠 ${p.hitPoison} 层）` : ''}` });
       break;
     case 'bloodpact':
-      p.trueDmg = (p.trueDmg || 0) + 200;
-      p.bloodUsed = true; // 一次性卡：用后不再出现在手牌
-      p.hp = Math.max(1, p.hp - 125); // 生命不足时保留1点
-      broadcast(room, 'msg', { sys: true, text: `🏹 ${p.name} 签订血契：下一次炮击额外 200 真实伤害，消耗 125 生命（剩余 ${p.hp}）` });
+      p.trueDmg = (p.trueDmg || 0) + 280;
+      p.bloodUsed = true; // 一次性卡：用后不再出现在候选中
+      p.hp = Math.max(1, p.hp - 150); // 生命不足时保留1点
+      broadcast(room, 'msg', { sys: true, text: `🏹 ${p.name} 签订血契：下一次炮击额外 280 真实伤害，消耗 150 生命（剩余 ${p.hp}）` });
       break;
     case 'berserk':
       p.berserk = 3;
-      broadcast(room, 'msg', { sys: true, text: `🔥 ${p.name} 进入狂暴：3 回合内炮击伤害 +80` });
+      broadcast(room, 'msg', { sys: true, text: `🔥 ${p.name} 进入狂暴：3 回合内炮击伤害 +70` });
       break;
     case 'fortress':
       p.fortress = 3;
@@ -764,7 +852,7 @@ function startTurn(room) {
   // 回合开始结算：中毒（在自己回合掉血）与堡垒衰减
   if (p.poison > 0) {
     p.poison--;
-    const real = dealDamage(room, p, 50, '☠️ 中毒');
+    const real = dealDamage(room, p, 60, '☠️ 中毒');
     // 毒伤飘字（紫色，客户端错开炮弹伤害的位置显示）
     broadcast(room, 'poisonDmg', { slot: room.players.indexOf(p), damage: real, hp: p.hp, alive: p.alive });
   }
@@ -783,10 +871,8 @@ function startTurn(room) {
     broadcast(room, 'msg', { sys: true, text: `⏭️ ${p.name} 被跳过回合，无法攻击！` });
   }
 
-  // 发3张卡牌（仅发给该玩家）
-  p.cardPlayed = skipped; // 被跳过时本回合也不能出牌
-  p.hand = skipped ? [] : drawCards(p);
-  io.to(p.sid).emit('hand', { cards: p.hand });
+  // 卡牌：跳过回合时不能出牌；卡槽状态跨回合保留（双卡槽制，不再每回合发牌）
+  p.cardPlayed = skipped;
   // 强化只生效一回合：回合开始时清空上一回合购买的强化
   p.extraShots = 0; p.critBonus = 0; p.dmgPct = 0; p.flatDmg = 0;
   p.lifesteal = 0; p.pierceEdge = false; p.doubleBoom = false;
@@ -901,13 +987,15 @@ function fire(room, shooter) {
         broadcast(room, 'msg', { sys: true, text: `💀 ${nm} 阵亡了` });
       }
     }
-    if (shooter.hitPoison && target.hp > 0) {
-      target.hp = Math.max(0, target.hp - 100);
-      target.poison = 2; // 之后每回合50，共2回合
+    if (shooter.hitPoison > 0 && target.hp > 0) {
+      const n = shooter.hitPoison; // 层数叠加：每层独立 120 毒伤 + 2 回合持续毒
+      const pdmg = 120 * n;
+      target.hp = Math.max(0, target.hp - pdmg);
+      target.poison = 2 * n;
       const nm = isMonster ? (target.kind === 'boss' ? '👹Boss' : '👾小兵') : target.name;
-      broadcast(room, 'msg', { sys: true, text: `☠️ ${nm} 中毒：100 毒伤，之后每回合 50 共 2 回合` });
-      if (isMonster) { const e = { id: target.id, x: Math.round(target.x), y: Math.round(target.y - target.r * 2.6), damage: 100, crit: false, tag: 'poison' }; mDmg.push(e); if (curLists) curLists.mDmgList.push(e); }
-      else { const e = { slot: room.players.indexOf(target), damage: 100, hp: target.hp, alive: target.alive, crit: false, tag: 'poison' }; dmg.push(e); if (curLists) curLists.dmgList.push(e); }
+      broadcast(room, 'msg', { sys: true, text: `☠️ ${nm} 中毒：${pdmg} 毒伤，之后每回合 60 共 ${2 * n} 回合${n > 1 ? `（${n} 层毒叠加）` : ''}` });
+      if (isMonster) { const e = { id: target.id, x: Math.round(target.x), y: Math.round(target.y - target.r * 2.6), damage: pdmg, crit: false, tag: 'poison' }; mDmg.push(e); if (curLists) curLists.mDmgList.push(e); }
+      else { const e = { slot: room.players.indexOf(target), damage: pdmg, hp: target.hp, alive: target.alive, crit: false, tag: 'poison' }; dmg.push(e); if (curLists) curLists.dmgList.push(e); }
       if (target.hp <= 0 && target.alive) {
         target.alive = false;
         broadcast(room, 'msg', { sys: true, text: `💀 ${nm} 阵亡了` });
@@ -968,8 +1056,8 @@ function fire(room, shooter) {
         // 敌方目标被炮弹命中：结算卡牌附加（真实伤害/涂毒），队友与自己不触发
         if (p !== shooter && (room.mode === 'pve' || p.team !== shooter.team)) applyOnHit(p, false);
         let d = Math.round(MAX_DMG * falloff(dist) * baseMult);
-        if (shooter.berserk > 0) d += 80;
-        if (shooter.revenge) d += 100;
+        if (shooter.berserk > 0) d += 70;
+        d += 100 * (shooter.revenge || 0);
         d += shooter.flatDmg || 0;
         d = Math.round(d * (1 + (shooter.dmgPct || 0)) * mult);
         if (d > 0) {
@@ -992,8 +1080,8 @@ function fire(room, shooter) {
         // 小兵不再有额外减伤；Boss保留0.8系数（更耐打）
         const tankMult = m.kind === 'boss' ? 0.8 : 1.0;
         let d = Math.round(MAX_DMG * tankMult * falloff(dist) * baseMult);
-        if (shooter.berserk > 0) d += 80;
-        if (shooter.revenge) d += 100;
+        if (shooter.berserk > 0) d += 70;
+        d += 100 * (shooter.revenge || 0);
         d += shooter.flatDmg || 0;
         d = Math.round(d * (1 + (shooter.dmgPct || 0)) * mult);
         if (d > 0) {
@@ -1009,7 +1097,7 @@ function fire(room, shooter) {
       }
     }
     if (shooter.berserk > 0) shooter.berserk--;
-    if (shooter.revenge) shooter.revenge = false;
+    if (shooter.revenge) shooter.revenge = 0; // 复仇层数随下一次炮击全部消耗
     curLists = null;
     return { sum, crit: isCrit, dmg: dmgList, mDmg: mDmgList, runs: runList };
   };
@@ -1072,7 +1160,7 @@ function fire(room, shooter) {
     room.shotTimer = null;
     // 卡牌附加效果随本次炮击结束而消耗（一次性）
     shooter.trueDmg = 0;
-    shooter.hitPoison = false;
+    shooter.hitPoison = 0;
     // 汲血(g)：本次炮击总伤害的30%转化为生命
     if (shooter.alive && shooter.lifesteal > 0 && lsGain > 0) {
       const heal = Math.min(MAX_HP - shooter.hp, Math.round(lsGain * shooter.lifesteal));
@@ -1290,8 +1378,15 @@ io.on('connection', (socket) => {
     const need = room.mode === 'pve' ? 1 : 2; // PVE单人即可开局
     if (active.length < need) { socket.emit('err', room.mode === 'pve' ? '等待玩家加入' : '至少需要2名玩家才能开始'); return; }
     room.state = 'playing';
+    // 双卡槽：开局每人随机获得1张卡（槽1），槽2留空待玩家主动抽牌补充
+    for (const p of active) {
+      p.slots = [randomCard(p), null];
+      p.cardChoice = null; p.cardPlayed = false; p.bloodUsed = false; p.deckUsed = false;
+      sendSlots(p);
+    }
     // 按房主选择的地图重新生成地形（等待期间可能切换过）
     room.terrain = genTerrain(room.map);
+    room.terrain0 = Float32Array.from(room.terrain); // 原始高度留档：重连快照用它重建贴图，弹坑由maskRuns像素级还原
     room.platforms = genPlatforms(room.map);
     room.mask = buildMask(room.terrain, room.platforms);
     const qi = waitingQueue.indexOf(room.id);
@@ -1345,7 +1440,7 @@ io.on('connection', (socket) => {
     broadcastRoom(room);
     broadcastState(room);
     io.to(socket.id).emit('state', publicRoom(room, socket.id, true)); // 全量快照（含被破坏地形）
-    io.to(socket.id).emit('hand', { cards: p.hand || [] });
+    sendSlots(p); // 重连：重发卡槽与未决的三选一候选
   });
 
   // 断线：对局中的对战玩家进入30秒宽限期（保留席位与状态），其余情况立即移除
@@ -1405,18 +1500,44 @@ io.on('connection', (socket) => {
     fire(curRoom, me);
   });
 
-  socket.on('playCard', (id) => {
+  socket.on('drawDeck', () => {
+    if (!curRoom || !me || curRoom.state !== 'playing') return;
+    if (me.deckUsed) { socket.emit('err', '牌堆只能抽一次'); return; }
+    if (!me.alive) { socket.emit('err', '阵亡后无法抽牌'); return; }
+    if (!me.slots) return;
+    if (me.slots[1]) { socket.emit('err', '第二卡槽已有卡牌'); return; }
+    if (me.cardChoice && me.cardChoice.length) { socket.emit('cardChoice', { cards: me.cardChoice }); return; }
+    me.cardChoice = randomChoices(me, 3);
+    io.to(me.sid).emit('cardChoice', { cards: me.cardChoice });
+  });
+
+  socket.on('pickCard', (id) => {
+    if (!curRoom || !me || curRoom.state !== 'playing') return;
+    if (!me.cardChoice || !me.cardChoice.some(c => c.id === String(id))) return;
+    if (me.slots && !me.slots[1]) {
+      me.slots[1] = me.cardChoice.find(c => c.id === String(id));
+      me.deckUsed = true; // 牌堆整局限一次：选定后即使打出该卡也不能再抽
+      const def = me.slots[1];
+      broadcast(curRoom, 'msg', { sys: true, text: `🂠 ${me.name} 从牌堆选了一张卡（${def.emoji} ${def.name}）` });
+    }
+    me.cardChoice = null;
+    sendSlots(me);
+  });
+
+  socket.on('playCard', (slot) => {
     if (!curRoom || !me || curRoom.state !== 'playing') return;
     const room = curRoom;
     const active = room.players.filter(p => !p.spectator);
-    if (active[room.turn] !== me) return;
-    if (me.cardPlayed) return;
-    if (!me.hand || !me.hand.some(c => c.id === id)) return;
-    me.cardPlayed = true;
-    me.hand = [];
-    const def = CARDS[String(id)];
-    broadcast(room, 'cardPlayed', { slot: room.players.indexOf(me), card: def ? `${def.emoji} ${def.name}` : id, by: me.name });
-    applyCard(room, me, String(id));
+    if (active[room.turn] !== me) return; // 只有轮到自己才能出牌
+    if (me.cardPlayed) return; // 被跳过回合时不能出牌
+    const idx = Number(slot);
+    if (!me.slots || !(idx === 0 || idx === 1) || !me.slots[idx]) return;
+    const id = me.slots[idx].id;
+    me.slots[idx] = null;
+    const def = CARDS[id];
+    broadcast(room, 'cardPlayed', { slot: room.players.indexOf(me), card: `${def.emoji} ${def.name}`, by: me.name });
+    applyCard(room, me, id);
+    sendSlots(me);
     broadcastState(room);
     checkCardEnd(room);
   });
@@ -1460,15 +1581,17 @@ io.on('connection', (socket) => {
     if (room.hostSid !== socket.id) { socket.emit('err', '只有房主才能开始新一局'); return; }
     if (room.state !== 'over') return;
     room.terrain = genTerrain(room.map);
+    room.terrain0 = Float32Array.from(room.terrain); // 原始高度留档：重连快照用它重建贴图，弹坑由maskRuns像素级还原
     room.platforms = genPlatforms(room.map);
     room.mask = buildMask(room.terrain, room.platforms);
     for (const p of room.players) {
       p.hp = MAX_HP; p.alive = true; p.angle = 45; p.power = 40; p.moveBudget = MOVE_BUDGET; p.fired = false;
-      p.hand = []; p.cardPlayed = false; p.shield = 0; p.berserk = 0; p.revenge = false; p.fortress = 0; p.poison = 0; p.skip = 0;
-      p.trueDmg = 0; p.hitPoison = false;
+      p.slots = [randomCard(p), null]; p.cardChoice = null; p.cardPlayed = false; p.deckUsed = false; p.shield = 0; p.berserk = 0; p.revenge = 0; p.fortress = 0; p.poison = 0; p.skip = 0;
+      p.trueDmg = 0; p.hitPoison = 0; p.bloodUsed = false;
       p.points = 0; p.extraShots = 0; p.critBonus = 0; p.dmgPct = 0; p.flatDmg = 0;
       room.spawnSeq = 0; room.spawnCount = 0;
       p.lifesteal = 0; p.pierceEdge = false; p.doubleBoom = false;
+      sendSlots(p);
     }
     const active = room.players.filter(p => !p.spectator);
     const idxInTeam = [0, 0];
@@ -1499,5 +1622,5 @@ if (process.env.TEST_EXPORT) {
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
-  console.log(`弹弹堂服务器已启动: http://localhost:${PORT}`);
+  console.log(`The Last Star 服务器已启动: http://localhost:${PORT}`);
 });

@@ -71,6 +71,7 @@ const SFX = (() => {
     shoot3()  { noise(.2, .12); tone(820, .14, 'sine', .06, 0, -660); tone(300, .05, 'square', .05); tone(1200, .06, 'sine', .04, .06, -800); }, // 疾风：破风+甩腕
     win()     { sample('/sound/victory.mp3'); },   // 战胜音效（音频文件）
     lose()    { sample('/sound/defeat.m4a'); },    // 战败音效（音频文件）
+    card()    { sample('/sound/card-sound.wav'); }, // 卡牌：出牌/三选一选牌（音频文件）
   };
 
   // BGM：使用音频文件循环播放（lobby/battle两套）

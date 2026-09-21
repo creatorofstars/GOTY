@@ -1,7 +1,7 @@
 {
-  "name": "ddtgame",
+  "name": "the-last-star",
   "version": "1.0.0",
-  "description": "弹弹堂风格多人在线回合制炮弹游戏",
+  "description": "The Last Star - 多人在线回合制炮弹对战游戏",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

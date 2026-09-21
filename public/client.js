@@ -1,4 +1,4 @@
-/* 弹弹堂 Online 客户端 */
+/* The Last Star 客户端 */
 const cv = document.getElementById('cv');
 const ctx = cv.getContext('2d');
 ctx.imageSmoothingEnabled = true;
@@ -330,8 +330,30 @@ function eraseBoomCircle(cx, cy, r) {
   }
 }
 
-function applyTerrainRuns(runs) {
-  // 1. 先清除弹坑本体（必须在收集烧焦边之前，否则弹坑内部会被误染黑）
+/** 解码服务器游程掩码，覆盖本地碰撞掩码并把非实心像素从地形贴图上抹掉：
+ *  重连/中途加入时像素级还原弹坑与被破坏平台（贴图已由原始高度重建，此处只做"挖除"） */
+function applyServerMask(runs) {
+  if (!runs || !runs.length || runs.length % 2) return;
+  const m = new Uint8Array(W * H);
+  let i = 0;
+  for (let k = 0; k < runs.length; k += 2) {
+    const v = runs[k], n = runs[k + 1];
+    if (!n || i + n > m.length) return; // 数据异常则放弃，保持重建底图
+    m.fill(v, i, i + n);
+    i += n;
+  }
+  if (i !== m.length) return;
+  mask = m;
+  const hole = tctx.createImageData(W, H);
+  for (let j = 0; j < m.length; j++) hole.data[j * 4 + 3] = m[j] ? 0 : 255; // 空洞处不透明，实心/天空处透明
+  const hc = document.createElement('canvas'); hc.width = W; hc.height = H;
+  hc.getContext('2d').putImageData(hole, 0, 0);
+  tctx.globalCompositeOperation = 'destination-out';
+  tctx.drawImage(hc, 0, 0); // 抹掉空洞像素（天空本就透明，抹除为无操作）
+  tctx.globalCompositeOperation = 'source-over';
+}
+
+function applyTerrainRuns(runs) {  // 1. 先清除弹坑本体（必须在收集烧焦边之前，否则弹坑内部会被误染黑）
   for (const r of runs) {
     tctx.clearRect(r.x, r.y0, 1, r.y1 - r.y0 + 1);
     for (let y = r.y0; y <= r.y1; y++) mask[y * W + r.x] = 0;
@@ -841,8 +863,14 @@ socket.on('state', (st) => {
     terrain = Float32Array.from(st.terrain);
     platforms = st.platforms || [];
     buildTerrainTexture(terrain);
+    applyServerMask(st.maskRuns); // 服务器原始高度建底图后，用像素级掩码还原全部弹坑与被破坏平台
+    // 全量重建（新一局/重连/中途加入）：清空上一局残留的怪物插值坐标与飞行中的小兵炮弹，
+    // 否则新刷怪物沿用旧 rx/ry 会从上一局的位置"滑回"出生点
+    monsters = []; finishedSpawns.clear(); minionShots = {};
   }
   mergeMonsters(st.monsters);
+  roomState = st.state || 'waiting';
+  if (roomState !== 'playing') $('cardChoiceMask').classList.remove('show'); // 对局结束收起三选一弹层
   SFX.setBgm(st.mode === 'pve' && st.state === 'playing' ? 'battle' : 'lobby');
   players = st.players;
   wind = st.wind;
@@ -855,6 +883,7 @@ socket.on('state', (st) => {
 });
 
 let me = null;
+let roomState = 'waiting'; // waiting / playing / over（控制卡槽区显示）
 
 socket.on('turn', (t) => {
   curTurnSid = t.sid;
@@ -866,7 +895,7 @@ socket.on('turn', (t) => {
   if (animating) { flying = null; animating = false; }
   // 新回合开始意味着对局已在进行：收起胜负结算浮层（非房主不会触发rematch按钮，靠这里关闭）
   hideOverlay();
-  cardUsed = false; fBought = false; gBought = false; renderCards(); renderPoints(); // 注意：不清手牌，服务器在本回合开始时已发新牌
+  fBought = false; gBought = false; renderCards(); renderPoints(); // 卡槽跨回合保留，无需每回合重置
   if (curTurnSid === socket.id && !barCollapsedByUser) setBarCollapsed(true); // 自己的回合自动收起底栏
   $('timer').textContent = t.timeLeft;
   $('timer').classList.toggle('urgent', t.timeLeft <= 5);
@@ -1363,14 +1392,88 @@ socket.on('turnEnd', () => {
   updateHUD();
 });
 
-/* ---------- 卡牌手牌 ---------- */
-let hand = [], cardUsed = false;
-socket.on('hand', (d) => { hand = d.cards || []; cardUsed = false; renderCards(); });
+/* ---------- 卡牌卡槽（双卡槽：开局1张 + 主动抽牌三选一，牌堆整局限抽一次） ---------- */
+let cardSlots = [null, null], deckUsed = false;
+socket.on('hand', (d) => {
+  cardSlots = (d.slots || []).slice(0, 2);
+  while (cardSlots.length < 2) cardSlots.push(null);
+  deckUsed = !!d.deckUsed;
+  renderCards();
+});
 socket.on('cardPlayed', (d) => {
-  if (me && d.slot === me.slot) cardUsed = true;
+  // 卡槽内容以服务器 hand 事件为准，这里只播报聊天
   if (d.by) addChat(null, `${d.by} 打出了卡牌 ${d.card}`);
   renderCards();
 });
+socket.on('cardChoice', (d) => showCardChoice(d.cards || []));
+
+function cardTitle(c) { return t('card_' + c.id) !== 'card_' + c.id ? t('card_' + c.id) : c.name; }
+function cardDesc(c) { return t('card_' + c.id + '_d') !== 'card_' + c.id + '_d' ? t('card_' + c.id + '_d') : c.desc; }
+
+/** 抽牌三选一弹层：三张卡从牌堆方向依次浮现 */
+function showCardChoice(cards) {
+  const mask = $('cardChoiceMask'), box = $('cardChoiceBox');
+  if (!cards.length) { mask.classList.remove('show'); return; }
+  box.querySelector('.title').textContent = t('card_choice_title');
+  const list = box.querySelector('.cards');
+  list.innerHTML = '';
+  cards.forEach((c, i) => {
+    const div = document.createElement('div');
+    div.className = 'card';
+    div.style.setProperty('--rot', ((i - 1) * 9) + 'deg'); // 依次错开成扇形
+    div.style.animationDelay = (i * 0.09) + 's';
+    div.innerHTML = `<div class="cemoji">${c.emoji}</div><div class="cname">${cardTitle(c)}</div><div class="cdesc">${cardDesc(c)}</div>`;
+    div.onmouseenter = () => SFX.play('upgHover');
+    div.onclick = () => {
+      SFX.play('card');
+      socket.emit('pickCard', c.id);
+      mask.classList.remove('show');
+    };
+    list.appendChild(div);
+  });
+  mask.classList.add('show');
+}
+// 点击遮罩空白处收起弹层（候选保留在服务器，再点牌堆可重新打开）
+$('cardChoiceMask').onclick = (e) => { if (e.target === $('cardChoiceMask')) $('cardChoiceMask').classList.remove('show'); };
+
+function renderCards() {
+  const el = $('cardHand');
+  el.innerHTML = '';
+  if (isSpectator || !me || roomState !== 'playing') return;
+  const myTurnNow = curTurnSlot === mySlotRef() && me.alive !== false;
+  for (let i = 0; i < 2; i++) {
+    const c = cardSlots[i];
+    const div = document.createElement('div');
+    if (!c) {
+      // 空卡槽占位（槽2可点牌堆补充，见下方牌堆按钮）
+      div.className = 'card empty';
+      div.innerHTML = `<div class="cemoji">＋</div><div class="cname">${t('slot_empty')}</div><div class="cdesc">${i === 1 ? t('deck_hint') : ''}</div>`;
+      el.appendChild(div);
+      continue;
+    }
+    div.className = 'card' + (myTurnNow ? '' : ' disabled');
+    div.innerHTML = `<div class="cemoji">${c.emoji}</div><div class="cname">${cardTitle(c)}</div><div class="cdesc">${cardDesc(c)}</div>`;
+    if (myTurnNow) {
+      div.onmouseenter = () => SFX.play('upgHover');
+      div.onclick = () => { SFX.play('card'); socket.emit('playCard', i); };
+    }
+    el.appendChild(div);
+  }
+  // 牌堆按钮：整局限抽一次，且第二卡槽为空时显示（任意时刻可点，不限自己的回合）
+  if (!deckUsed && !cardSlots[1] && me.alive !== false) {
+    const deck = document.createElement('div');
+    deck.id = 'deckBtn';
+    deck.innerHTML = `<div class="pile"><div class="layer l3"></div><div class="layer l2"></div><div class="layer l1"></div><div class="top">🂠</div></div><div class="cname">${t('deck_btn')}</div><div class="cdesc">${t('deck_hint')}</div>`;
+    deck.onmouseenter = () => SFX.play('upgHover');
+    deck.onclick = () => {
+      SFX.play('upgClick');
+      deck.classList.remove('dealt'); void deck.offsetWidth; // 重启点击弹跳动画
+      deck.classList.add('dealt');
+      socket.emit('drawDeck');
+    };
+    el.appendChild(deck);
+  }
+}
 
 /* ---------- 积分强化面板 ---------- */
 const UPGRADES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 's'].map(id => ({ id }));
@@ -1411,19 +1514,6 @@ function renderPoints() {
   }
 }
 
-function renderCards() {
-  const el = $('cardHand');
-  el.innerHTML = '';
-  if (isSpectator || !hand.length) return;
-  const usable = !cardUsed && !!me && me.alive !== false && curTurnSlot === mySlotRef();
-  for (const c of hand) {
-    const div = document.createElement('div');
-    div.className = 'card' + (usable ? '' : ' disabled');
-    div.innerHTML = `<div class="cemoji">${c.emoji}</div><div class="cname">${t('card_' + c.id) !== 'card_' + c.id ? t('card_' + c.id) : c.name}</div><div class="cdesc">${t('card_' + c.id + '_d') !== 'card_' + c.id + '_d' ? t('card_' + c.id + '_d') : c.desc}</div>`;
-    if (usable) div.onclick = () => socket.emit('playCard', c.id);
-    el.appendChild(div);
-  }
-}
 function mySlotRef() {
   const act = players.filter(p => !p.spectator);
   const cur = act[curTurnSlot];
@@ -1809,10 +1899,16 @@ function drawMonsters() {
     const mya = groundBelowLocal(mxa, m.ry - 8), myb = groundBelowLocal(mxb, m.ry - 8);
     ctx.save();
     ctx.rotate((mya >= H || myb >= H) ? 0 : Math.atan2(myb - mya, mxb - mxa));
-    // 贴图：小兵用原图，Boss用换色版；按朝向水平翻转（站在左侧朝右，右侧朝左）
+    // 贴图：小兵用原图，Boss用换色版；面向最近的存活玩家（与服务端怪物索敌一致）
     const img = m.kind === 'boss' ? bossImg : enemyImg;
     if (img && (img.naturalWidth || img.width)) {
-      const d = m.x < W / 2 ? 1 : -1;
+      let near = null, nd = Infinity;
+      for (const p of players) {
+        if (p.spectator || p.alive === false) continue;
+        const dd = Math.abs(p.x - m.x);
+        if (dd < nd) { nd = dd; near = p; }
+      }
+      const d = near ? (near.x >= m.x ? 1 : -1) : (m.x < W / 2 ? 1 : -1);
       const size = m.r * 2.6;
       ctx.save();
       ctx.scale(d, 1);
@@ -1825,19 +1921,29 @@ function drawMonsters() {
       ctx.beginPath(); ctx.arc(0, -m.r, m.r, 0, 7); ctx.fill();
     }
     ctx.restore(); // 结束坡度旋转：血条始终保持水平
-    // 血条（圆角、水平）
-    const bw = m.kind === 'boss' ? 64 : 36;
-    const by = -m.r * 2.6 - 14;
-    ctx.fillStyle = 'rgba(0,0,0,.6)';
-    rr(ctx, -bw / 2, by, bw, 6, 3); ctx.fill();
+    // 血条（圆角、水平）：半透明底板，条内居中显示 当前/最大生命值
+    const bw = m.kind === 'boss' ? 84 : 44;
+    const bh = m.kind === 'boss' ? 14 : 11;
+    const by = -m.r * 2.6 - 16;
+    ctx.fillStyle = 'rgba(0,0,0,.3)';
+    rr(ctx, -bw / 2, by, bw, bh, 4); ctx.fill();
     if (m.hp > 0) {
       ctx.fillStyle = m.hp / m.maxHp > 0.4 ? '#ff9800' : '#ff3d00';
-      rr(ctx, -bw / 2, by, Math.max(5, bw * (m.hp / m.maxHp)), 6, 3); ctx.fill();
+      rr(ctx, -bw / 2, by, Math.max(5, bw * (m.hp / m.maxHp)), bh, 4); ctx.fill();
     }
+    ctx.font = `bold ${m.kind === 'boss' ? 11 : 9}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(0,0,0,.55)'; // 深色描边保证在橙色填充/暗色底上均可读
+    ctx.fillStyle = '#fff';
+    const htxt = `${Math.ceil(m.hp)}/${m.maxHp}`;
+    ctx.strokeText(htxt, 0, by + bh / 2 + 0.5);
+    ctx.fillText(htxt, 0, by + bh / 2 + 0.5);
+    ctx.textBaseline = 'alphabetic'; // 还原基线，不影响后续绘制
     if (m.kind === 'boss') {
       ctx.fillStyle = '#ffd54a';
       ctx.font = 'bold 11px sans-serif';
-      ctx.textAlign = 'center';
       ctx.fillText('BOSS', 0, by - 5);
     }
     ctx.restore();

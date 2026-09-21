@@ -60,6 +60,7 @@ body:has(#game:not(.hidden)) #langPanel { display: none; }
   box-shadow: 0 24px 70px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.12);
 }
 .lobby-box h1 { text-align: center; font-size: 54px; margin-bottom: 8px; letter-spacing: 2px; animation: titleGlow 3.2s ease-in-out infinite alternate; }
+.lobby-box .dedication { text-align: center; color: #8fa0c8; font-size: 14px; font-style: italic; margin: 0 0 18px; letter-spacing: 1px; }
 @keyframes titleGlow { from { text-shadow: 0 0 18px rgba(255,213,74,.25); } to { text-shadow: 0 0 38px rgba(255,213,74,.6); } }
 .lobby-box h2 { text-align: center; font-size: 40px; margin-bottom: 10px; }
 #roomScreen .lobby-box { max-width: 1600px; padding: 20px 32px; margin: 0; flex: 0 1 1600px; }
@@ -78,7 +79,6 @@ body:has(#game:not(.hidden)) #langPanel { display: none; }
 .chat-panel h3 { margin: 0 0 10px; font-size: 16px; color: #9fb0d0; }
 #roomScreen .row { margin-top: 12px; }
 #rsTip { margin: 8px 0 2px; font-size: 14px; text-align: center; }
-.lobby-box .sub { color: #ffd54a; font-size: 24px; }
 .lobby-box .tip { text-align: center; color: #9fb0d0; margin-bottom: 30px; font-size: 15px; }
 .row { display: flex; gap: 10px; margin-bottom: 14px; }
 .row label { align-self: center; width: 52px; color: #9fb0d0; }
@@ -321,6 +321,67 @@ input:focus { border-color: #ffd54a; box-shadow: 0 0 0 3px rgba(255,213,74,.15);
 .card .cdesc { font-size: 11px; color: #aebadb; line-height: 1.35; }
 .card.disabled { opacity: .45; cursor: not-allowed; }
 .card.disabled:hover { transform: none; border-color: rgba(255,255,255,.3); }
+/* 空卡槽占位 */
+.card.empty { cursor: default; opacity: .35; border-style: dashed; background: rgba(22,32,60,.5); }
+.card.empty:hover { transform: none; border-color: rgba(255,255,255,.3); box-shadow: 0 6px 16px rgba(0,0,0,.45); }
+.card.empty .cemoji { opacity: .6; }
+.card.empty .cname { color: #7d8bb5; }
+/* 牌堆按钮：多层卡牌堆叠 */
+#deckBtn {
+  pointer-events: auto; display: flex; flex-direction: column; align-items: center;
+  width: 116px; padding: 8px 6px 6px; cursor: pointer; user-select: none; text-align: center;
+  transition: transform .15s;
+}
+#deckBtn:hover { transform: translateY(-6px); }
+#deckBtn.dealt { animation: deckPress .32s ease; } /* 点击弹跳 */
+@keyframes deckPress {
+  0% { transform: scale(1); }
+  40% { transform: scale(.9) translateY(4px); }
+  70% { transform: scale(1.04) translateY(-3px); }
+  100% { transform: scale(1); }
+}
+#deckBtn .pile { position: relative; width: 66px; height: 104px; animation: deckIdle 2.8s ease-in-out infinite; }
+@keyframes deckIdle { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+#deckBtn .layer {
+  position: absolute; left: 0; right: 0; height: 86px; border-radius: 8px;
+  background: linear-gradient(165deg, #6e2c2c, #3a1414);
+  border: 1px solid rgba(255,255,255,.4);
+  box-shadow: 0 2px 5px rgba(0,0,0,.45);
+}
+#deckBtn .layer.l3 { bottom: 0; transform: rotate(-6deg); }
+#deckBtn .layer.l2 { bottom: 5px; transform: rotate(5deg); }
+#deckBtn .layer.l1 { bottom: 10px; transform: rotate(-2deg); }
+#deckBtn .top {
+  position: absolute; left: 0; right: 0; bottom: 16px; height: 86px; border-radius: 8px;
+  background: linear-gradient(165deg, #8a3d3d, #4a1c1c);
+  border: 1px solid rgba(255,255,255,.5);
+  box-shadow: 0 6px 14px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 36px; color: #ffd54a; text-shadow: 0 2px 4px rgba(0,0,0,.5);
+  transition: transform .15s, border-color .15s;
+}
+#deckBtn:hover .top { transform: translateY(-5px); border-color: #ffd54a; }
+#deckBtn .cname { font-size: 12px; font-weight: bold; color: #ffd54a; margin: 6px 0 2px; text-shadow: 0 2px 4px rgba(0,0,0,.6); }
+#deckBtn .cdesc { font-size: 11px; color: #aebadb; line-height: 1.3; }
+/* 抽牌三选一弹层：三张卡从牌堆方向浮现并展开成扇形 */
+#cardChoiceMask {
+  position: absolute; inset: 0; z-index: 60; display: none;
+  flex-direction: column; align-items: center; justify-content: flex-end;
+  padding-bottom: 150px; background: rgba(0,0,0,.45);
+}
+#cardChoiceMask.show { display: flex; }
+#cardChoiceBox { text-align: center; }
+#cardChoiceBox .title { color: #ffd54a; font-weight: bold; font-size: 16px; margin-bottom: 14px; text-shadow: 0 2px 6px rgba(0,0,0,.6); }
+#cardChoiceBox .cards { display: flex; gap: 14px; justify-content: center; }
+#cardChoiceBox .card {
+  animation: cardRise .42s cubic-bezier(.18,.9,.28,1.18) backwards;
+  transform: rotate(var(--rot, 0deg)); transform-origin: 50% 130%;
+}
+#cardChoiceBox .card:hover { transform: translateY(-12px) rotate(0deg) scale(1.06); border-color: #ffd54a; }
+@keyframes cardRise {
+  from { transform: translateY(120px) scale(.4) rotate(0deg); opacity: 0; }
+  to { transform: translateY(0) scale(1) rotate(var(--rot, 0deg)); opacity: 1; }
+}
 
 #toast {
   position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
