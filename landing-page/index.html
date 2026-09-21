@@ -9,7 +9,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Caveat+Brush&family=Nunito:ital,wght@0,400;0,600;0,700;0,800;1,400;1,700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=11">
+<link rel="stylesheet" href="css/style.css?v=12">
 </head>
 <body>
 
@@ -153,6 +153,75 @@
   <p class="fineprint">© 2026 The Last Star · A cozy 1v1 tactical adventure</p>
 </footer>
 
-<script src="js/main.js?v=4"></script>
+<section class="feedback" id="feedback">
+  <div class="feedback-panel">
+    <header class="fb-head">
+      <h2 class="fb-title">What Players Think</h2>
+      <p class="fb-sub">Played the game? Tell us what you think!</p>
+    </header>
+    <div class="fb-grid">
+
+      <div class="fb-cards">
+        <article class="fb-card" style="--rot:-1.3deg">
+          <span class="fb-badge" aria-hidden="true">★</span>
+          <img class="fb-avatar" src="assets/char-gunner.jpg" alt="">
+          <p class="fb-handle">@MapleRin</p>
+          <blockquote>“The random cards make every match feel different!”</blockquote>
+          <p class="fb-stars" aria-label="5 out of 5 stars">★★★★★</p>
+        </article>
+
+        <article class="fb-card" style="--rot:1.1deg">
+          <span class="fb-badge" aria-hidden="true">★</span>
+          <img class="fb-avatar" src="assets/char-mage.jpg" alt="">
+          <p class="fb-handle">@SunnyPatch</p>
+          <blockquote>“The Bomb Mage is chaos and I love it!”</blockquote>
+          <p class="fb-stars" aria-label="5 out of 5 stars">★★★★★</p>
+          <span class="fb-deco" aria-hidden="true">💣</span>
+        </article>
+
+        <article class="fb-card" style="--rot:0.9deg">
+          <span class="fb-badge" aria-hidden="true">★</span>
+          <img class="fb-avatar" src="assets/char-archer.jpg" alt="">
+          <p class="fb-handle">@LunaTales</p>
+          <blockquote>“The characters are so cute — I need a rematch!!”</blockquote>
+          <p class="fb-stars" aria-label="5 out of 5 stars">★★★★★</p>
+          <span class="fb-deco" aria-hidden="true">🍃</span>
+        </article>
+
+        <article class="fb-card" style="--rot:-1deg">
+          <span class="fb-badge" aria-hidden="true">★</span>
+          <img class="fb-avatar" src="assets/char-ninja.jpg" alt="">
+          <p class="fb-handle">@NightOwl</p>
+          <blockquote>“That last-second comeback was insane.”</blockquote>
+          <p class="fb-stars" aria-label="5 out of 5 stars">★★★★★</p>
+          <span class="fb-deco" aria-hidden="true">✷</span>
+        </article>
+      </div>
+
+      <form class="fb-form" id="feedbackForm" novalidate>
+        <label for="fbName">👤 Name</label>
+        <input id="fbName" type="text" placeholder="Your name (optional)" maxlength="40" autocomplete="off">
+
+        <label for="fbText">📝 What did you think?</label>
+        <textarea id="fbText" rows="5" placeholder="Share your thoughts..." maxlength="400"></textarea>
+
+        <label>⭐ Rate your experience <span class="fb-optional">(optional)</span></label>
+        <div class="fb-rate" id="fbRate" aria-label="Rate your experience">
+          <button type="button" class="rate-star" aria-label="1 star">★</button>
+          <button type="button" class="rate-star" aria-label="2 stars">★</button>
+          <button type="button" class="rate-star" aria-label="3 stars">★</button>
+          <button type="button" class="rate-star" aria-label="4 stars">★</button>
+          <button type="button" class="rate-star" aria-label="5 stars">★</button>
+        </div>
+
+        <button class="btn btn-send" type="submit"><span class="btn-star" aria-hidden="true">➤</span>Send Feedback</button>
+        <p class="fb-thanks" id="fbThanks" hidden>⭐ Thanks! Your feedback has been sent.</p>
+      </form>
+
+    </div>
+  </div>
+</section>
+
+<script src="js/main.js?v=5"></script>
 </body>
 </html>

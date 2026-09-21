@@ -52,6 +52,49 @@
   sections.forEach(s => spy.observe(s));
 })();
 
+// ---------- feedback form ----------
+(function () {
+  const form = document.getElementById('feedbackForm');
+  if (!form) return;
+  const stars = [...form.querySelectorAll('.rate-star')];
+  const text = form.querySelector('#fbText');
+  const thanks = document.getElementById('fbThanks');
+  let rating = 0;
+
+  function paint(n) { stars.forEach((s, i) => s.classList.toggle('on', i < n)); }
+
+  stars.forEach((s, i) => {
+    s.addEventListener('mouseenter', () => paint(i + 1));
+    s.addEventListener('mouseleave', () => paint(rating));
+    s.addEventListener('click', () => { rating = i + 1; paint(rating); });
+  });
+
+  text.addEventListener('input', () => text.classList.remove('err'));
+
+  form.addEventListener('submit', e => {
+    e.preventDefault();
+    const msg = text.value.trim();
+    if (!msg) { text.classList.add('err'); text.focus(); return; }
+    text.classList.remove('err');
+
+    // wire up to a backend endpoint later — kept local for now
+    const entry = {
+      name: form.querySelector('#fbName').value.trim(),
+      message: msg,
+      rating,
+      at: new Date().toISOString(),
+    };
+    try {
+      const all = JSON.parse(localStorage.getItem('fb-feedback') || '[]');
+      all.push(entry);
+      localStorage.setItem('fb-feedback', JSON.stringify(all));
+    } catch (err) { /* storage unavailable — still show thanks */ }
+
+    form.querySelectorAll('input, textarea, button').forEach(el => { el.disabled = true; });
+    thanks.hidden = false;
+  });
+})();
+
 // ---------- mobile menu ----------
 (function () {
   const btn = document.querySelector('.menu-btn');
