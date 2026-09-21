@@ -200,14 +200,16 @@ section { scroll-margin-top: 70px; }
 .hero-shade {
   position: absolute;
   inset: 0;
+  z-index: 1;
   background:
-    linear-gradient(90deg, rgba(20, 36, 95, .60) 0%, rgba(20, 36, 95, .38) 22%, rgba(20, 36, 95, .16) 38%, transparent 55%),
-    linear-gradient(180deg, rgba(20, 40, 100, .16) 0%, transparent 24%);
+    linear-gradient(90deg, rgba(20, 36, 95, .28) 0%, rgba(20, 36, 95, .12) 26%, transparent 48%),
+    linear-gradient(180deg, rgba(20, 40, 100, .10) 0%, transparent 20%);
   pointer-events: none;
 }
 
 .hero-inner {
   position: absolute;
+  z-index: 2;
   left: clamp(18px, 4.5vw, 72px);
   top: 31%;
   width: min(36%, 480px);
