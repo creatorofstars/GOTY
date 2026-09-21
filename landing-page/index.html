@@ -9,7 +9,15 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Caveat+Brush&family=Nunito:ital,wght@0,400;0,600;0,700;0,800;1,400;1,700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="css/style.css?v=15">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<link rel="stylesheet" href="css/style.css?v=17">
 </head>
 <body>
 
@@ -67,7 +75,7 @@
       <h2 class="heading">Choose Your Fighter</h2>
       <div class="fighter-grid">
 
-        <article class="fighter reveal" style="--c:#5f9a37; --cd:#4a7c28">
+        <article class="fighter reveal" style="--c:#5f9a37; --cd:#4a7c28" data-char="archer" title="Click to inspect The Archer">
           <div class="portrait"><img src="assets/char-archer.jpg" alt="Archer — a calm forest ranger" loading="lazy"></div>
           <h3 class="tag">Archer</h3>
           <p>A calm forest ranger with a magical bow.</p>
@@ -230,6 +238,44 @@
 
 
 
-<script src="js/main.js?v=5"></script>
+<div class="char-modal" id="archerModal" hidden>
+  <div class="char-dialog" role="dialog" aria-modal="true" aria-label="The Archer — character information">
+    <button class="char-close" id="charClose" type="button" aria-label="Close">✕</button>
+
+    <div class="char-viewer">
+      <canvas id="charCanvas"></canvas>
+      <div class="char-loading" id="charLoading"><span>🏹</span>Summoning the Archer…</div>
+      <div class="char-fallback" id="charFallback" hidden>
+        <img src="assets/char-archer.jpg" alt="The Archer">
+      </div>
+      <p class="char-hint">drag to rotate · scroll to zoom</p>
+    </div>
+
+    <div class="char-info">
+      <h3 class="char-name">🏹 The Archer</h3>
+      <p class="char-tag">The One Who Never Misses</p>
+      <div class="char-lore">
+        <p>The forest was the first thing she learned to protect.</p>
+        <p>Growing up on the kingdom's borders, she became a ranger who could hear danger
+           before anyone else saw it. She never cared for glory — only for making sure
+           everyone made it home safely.</p>
+        <p>Then the Heart Star began to fade.</p>
+        <p>The forest went quiet. Animals disappeared. Even the trees began losing their
+           magic. For the first time, there was nothing she could protect by staying
+           where she was.</p>
+        <p>So she picked up her bow and left the forest. At the ancient temple, she
+           learned that only the strongest warrior could carry the Star Fragment.</p>
+        <p>She simply drew her bow.</p>
+        <p class="char-quote">“You don't need a hundred arrows when one is enough.”</p>
+      </div>
+      <div class="char-passive">
+        <span class="char-passive-label">Passive · Deadly Strike</span>
+        <p>15% chance for 150% damage (stacks with upgrade B, 100% base damage).</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="js/main.js?v=7"></script>
 </body>
 </html>

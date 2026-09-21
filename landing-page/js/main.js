@@ -95,6 +95,111 @@
   });
 })();
 
+// ---------- archer character popup (3D viewer) ----------
+(function () {
+  const card = document.querySelector('.fighter[data-char="archer"]');
+  const modal = document.getElementById('archerModal');
+  if (!card || !modal) return;
+
+  const canvas = document.getElementById('charCanvas');
+  const loading = document.getElementById('charLoading');
+  const fallback = document.getElementById('charFallback');
+  let raf = null;
+  let api = null;
+
+  function stopLoop() { if (raf) { cancelAnimationFrame(raf); raf = null; } }
+  function close() {
+    modal.hidden = true;
+    document.body.classList.remove('modal-open');
+    stopLoop();
+  }
+
+  async function startViewer() {
+    if (api) { api.start(); return; }
+    loading.hidden = false;
+
+    try {
+      const THREE = await import('three');
+      const { FBXLoader } = await import('three/addons/loaders/FBXLoader.js');
+      const { OrbitControls } = await import('three/addons/controls/OrbitControls.js');
+
+      const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+      camera.position.set(0, 1.4, 3.4);
+
+      scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x8a7a5a, 1.5));
+      scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+      const key = new THREE.DirectionalLight(0xffffff, 2.2);
+      key.position.set(2, 4, 3);
+      scene.add(key);
+      const rim = new THREE.DirectionalLight(0x9fd0ff, 1.4);
+      rim.position.set(-3, 2, -2);
+      scene.add(rim);
+
+      const controls = new OrbitControls(camera, canvas);
+      controls.enableDamping = true;
+      controls.autoRotate = true;
+      controls.autoRotateSpeed = 1.6;
+      controls.target.set(0, 0.9, 0);
+      controls.minDistance = 1.5;
+      controls.maxDistance = 6;
+
+      new FBXLoader().load('models/archer-3d.fbx', obj => {
+        const box = new THREE.Box3().setFromObject(obj);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        const scale = 1.9 / Math.max(size.x, size.y, size.z);
+        obj.scale.setScalar(scale);
+        obj.position.sub(center.multiplyScalar(scale));
+        scene.add(obj);
+        loading.hidden = true;
+      }, undefined, () => {
+        loading.hidden = true;
+        fallback.hidden = false; // model missing → show static art instead
+      });
+
+      function resize() {
+        const w = canvas.clientWidth, h = canvas.clientHeight;
+        if (!w || !h) return;
+        renderer.setSize(w, h, false);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+      }
+      window.addEventListener('resize', resize);
+
+      function loop() {
+        raf = requestAnimationFrame(loop);
+        resize();
+        controls.update();
+        renderer.render(scene, camera);
+      }
+      api = { start() { if (!raf) loop(); } };
+      api.start();
+    } catch (err) {
+      loading.hidden = true;
+      fallback.hidden = false; // CDN/library unavailable → static art
+    }
+  }
+
+  function open() {
+    modal.hidden = false;
+    document.body.classList.add('modal-open');
+    startViewer();
+  }
+
+  card.addEventListener('click', open);
+  card.setAttribute('tabindex', '0');
+  card.addEventListener('keydown', e => { if (e.key === 'Enter') open(); });
+  modal.querySelector('.char-close').addEventListener('click', close);
+  modal.addEventListener('click', e => { if (e.target === modal) close(); });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && !modal.hidden) close();
+  });
+})();
+
 // ---------- mobile menu ----------
 (function () {
   const btn = document.querySelector('.menu-btn');
