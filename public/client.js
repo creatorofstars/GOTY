@@ -951,7 +951,11 @@ socket.on('gameover', ({ winner }) => {
   const iWon = winner === '玩家队' || winner === '红队' && myTeam === 0 || winner === '蓝队' && myTeam === 1;
   const showResult = () => {
     SFX.play(iWon ? 'win' : 'lose');
-    showOverlay(`🏆 ${winner || '无人'} 获胜！`);
+    showOverlay(
+      iWon ? "🏆 The players' team wins!"
+      : winner === '平局' ? "🤝 It's a draw!"
+      : "💀 The players' team loses!"
+    );
     if (isHost && !isSpectator) {
       const btn = document.createElement('button');
       btn.className = 'btn primary big';
@@ -962,7 +966,7 @@ socket.on('gameover', ({ winner }) => {
       const tip = document.createElement('div');
       tip.style.fontSize = '16px';
       tip.style.color = '#cdd8ee';
-      tip.textContent = isSpectator ? '等待房主开始新一局…' : '等待房主开始新一局…';
+      tip.textContent = 'Waiting for the host to start a new round…';
       $('overlay').appendChild(tip);
     }
   };
