@@ -567,14 +567,18 @@ section { scroll-margin-top: 70px; }
   margin-bottom: 12px;
 }
 
+.fineprint-band {
+  background: linear-gradient(180deg, #1c2247, #10142b);
+  border-top: 1px solid rgba(255, 255, 255, .07);
+}
+
 .fineprint {
   max-width: 1420px;
-  margin: 30px auto 0;
+  margin: 0 auto;
   text-align: center;
-  font-size: .74rem;
-  color: #7d87b5;
-  border-top: 1px solid rgba(255, 255, 255, .08);
-  padding-top: 14px;
+  font-size: .78rem;
+  color: #8b95c4;
+  padding: 14px 20px;
 }
 
 /* ---------- feedback section ---------- */
