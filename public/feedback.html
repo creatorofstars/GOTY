@@ -126,7 +126,7 @@
     </fieldset></div>
 
     <button class="big" type="submit">⭐ Send my feedback</button>
-    <div class="hint">Your answers are copied automatically so you can paste them into the class chat — or use the Google Form below if one is set up.</div>
+    <div class="hint">Your answers are copied automatically so you can paste them into the class chat — or open the online survey if one is set up.</div>
   </form>
 
   <div id="thanks" class="card">
@@ -139,16 +139,16 @@
 
 <script>
 /* ------------------------------------------------------------------
-   OPTIONAL: create a Google Form for this questionnaire, then paste
-   its share link between the quotes below and re-push. A big
-   "Open the Feedback Form" button will appear automatically.
-   Example: const GOOGLE_FORM_URL = "https://forms.gle/xxxxxxxx";
+   OPTIONAL: create the survey (问卷星 / Google Forms / any platform),
+   then paste its share link between the quotes below and re-push.
+   A big "Open the Feedback Survey" button will appear automatically.
+   问卷星 example: const SURVEY_URL = "https://www.wjx.cn/vm/xxxxxx.aspx";
 ------------------------------------------------------------------- */
-const GOOGLE_FORM_URL = "";
+const SURVEY_URL = "";
 
 document.getElementById("f").addEventListener("submit", function (e) {
   e.preventDefault();
-  if (GOOGLE_FORM_URL) { window.open(GOOGLE_FORM_URL, "_blank"); return; }
+  if (SURVEY_URL) { window.open(SURVEY_URL, "_blank"); return; }
   const val = n => {
     const el = document.querySelector('input[name="' + n + '"]:checked');
     return el ? el.value : "(no answer)";
